@@ -11,6 +11,7 @@ import {
   sendViaOpenClawGateway,
   syncOpenClawGateway,
 } from './openclaw-client'
+import { getMainCopy, normalizeLocale } from '../src/shared/i18n'
 import type {
   AppState,
   BootstrapPayload,
@@ -46,50 +47,28 @@ interface AppPaths extends GatewaySettings {
   stateFile: string
 }
 
-const builtinPlugins: PluginItem[] = [
-  {
-    id: 'builtin-file-inspector',
-    name: '文件洞察',
-    description: '上传文本、表格、PDF 或文档后，优先整理重点、摘要和待确认项。',
-    enabled: true,
-    source: 'builtin',
-  },
-  {
-    id: 'builtin-web-brief',
-    name: '网页速读',
-    description: '为后续接入浏览器自动化和网页采集预留插件入口。',
-    enabled: true,
-    source: 'builtin',
-  },
-  {
-    id: 'builtin-spreadsheet-analyst',
-    name: '表格分析师',
-    description: '针对 CSV / Excel 提供结构化预览，方便继续提问分析。',
-    enabled: true,
-    source: 'builtin',
-  },
-]
+function currentLocale() {
+  return normalizeLocale(cachedState?.locale)
+}
 
-const builtinSkills: SkillItem[] = [
-  {
-    id: 'bundled-chat-ops',
-    name: '对话编排',
-    description: '帮助你把复杂目标拆成多个二级对话与执行步骤。',
-    source: 'bundled',
-  },
-  {
-    id: 'bundled-file-analysis',
-    name: '文件分析',
-    description: '导入文件时自动提取文本内容，并注入本轮对话上下文。',
-    source: 'bundled',
-  },
-  {
-    id: 'bundled-gateway-ready',
-    name: '兼容网关',
-    description: '预留 OpenClaw-compatible 网关接入位，但目录与名称完全独立。',
-    source: 'bundled',
-  },
-]
+function currentMainCopy() {
+  return getMainCopy(currentLocale())
+}
+
+function builtinPluginsForLocale(locale = currentLocale()) {
+  return getMainCopy(locale).builtinPlugins.map((plugin) => ({
+    ...plugin,
+    enabled: true,
+    source: 'builtin' as const,
+  }))
+}
+
+function builtinSkillsForLocale(locale = currentLocale()) {
+  return getMainCopy(locale).builtinSkills.map((skill) => ({
+    ...skill,
+    source: 'bundled' as const,
+  }))
+}
 
 function getAppPaths(): AppPaths {
   const homeDir = app.getPath('home')
@@ -149,17 +128,18 @@ async function exists(targetPath: string) {
   }
 }
 
-function trimPreview(content: string) {
+function trimPreview(content: string, locale = currentLocale()) {
+  const copy = getMainCopy(locale)
   const normalized = content.replaceAll('\0', '').trim()
   if (!normalized) {
-    return '文件已导入，但没有提取到可用文本内容。'
+    return copy.emptyAttachmentPreview
   }
 
   if (normalized.length <= TEXT_PREVIEW_LIMIT) {
     return normalized
   }
 
-  return `${normalized.slice(0, TEXT_PREVIEW_LIMIT)}\n\n[内容已截断，仅保留前 ${TEXT_PREVIEW_LIMIT} 个字符用于分析]`
+  return `${normalized.slice(0, TEXT_PREVIEW_LIMIT)}\n\n${copy.truncatedPreview(TEXT_PREVIEW_LIMIT)}`
 }
 
 function extensionOf(filePath: string) {
@@ -192,24 +172,25 @@ function inferAttachmentKind(filePath: string): ImportedAttachment['kind'] {
   return 'unknown'
 }
 
-async function readAttachmentPreview(filePath: string) {
+async function readAttachmentPreview(filePath: string, locale = currentLocale()) {
+  const copy = getMainCopy(locale)
   const kind = inferAttachmentKind(filePath)
   const extension = extensionOf(filePath)
 
   if (kind === 'text') {
-    return trimPreview(await fs.readFile(filePath, 'utf8'))
+    return trimPreview(await fs.readFile(filePath, 'utf8'), locale)
   }
 
   if (kind === 'pdf') {
     const parser = new PDFParse({ data: await fs.readFile(filePath) })
     const result = await parser.getText()
     await parser.destroy()
-    return trimPreview(result.text)
+    return trimPreview(result.text, locale)
   }
 
   if (kind === 'docx') {
     const result = await mammoth.extractRawText({ path: filePath })
-    return trimPreview(result.value)
+    return trimPreview(result.value, locale)
   }
 
   if (kind === 'spreadsheet') {
@@ -217,17 +198,17 @@ async function readAttachmentPreview(filePath: string) {
     const firstSheet = workbook.SheetNames[0]
     const sheet = workbook.Sheets[firstSheet]
     const preview = XLSX.utils.sheet_to_csv(sheet)
-    return trimPreview(`Sheet: ${firstSheet}\n\n${preview}`)
+    return trimPreview(`Sheet: ${firstSheet}\n\n${preview}`, locale)
   }
 
   if (kind === 'image') {
-    return '这是一个图片文件。当前版本先保留文件元信息，后续可继续接入 OCR / 视觉分析插件。'
+    return copy.imagePreview
   }
 
-  return `暂未内置 ${extension || '该类型'} 文件的深度解析，会把文件名和路径一起提供给模型参考。`
+  return copy.unsupportedFilePreview(extension || '')
 }
 
-async function importAttachment(filePath: string): Promise<ImportedAttachment> {
+async function importAttachment(filePath: string, locale = currentLocale()): Promise<ImportedAttachment> {
   const stats = await fs.stat(filePath)
 
   return {
@@ -237,11 +218,12 @@ async function importAttachment(filePath: string): Promise<ImportedAttachment> {
     size: stats.size,
     extension: extensionOf(filePath),
     kind: inferAttachmentKind(filePath),
-    preview: await readAttachmentPreview(filePath),
+    preview: await readAttachmentPreview(filePath, locale),
   }
 }
 
-async function readLocalSkills(skillsDir: string) {
+async function readLocalSkills(skillsDir: string, locale = currentLocale()) {
+  const copy = getMainCopy(locale)
   const skills: SkillItem[] = []
 
   try {
@@ -255,7 +237,7 @@ async function readLocalSkills(skillsDir: string) {
           skills.push({
             id: `local-skill-${entry.name}`,
             name: entry.name,
-            description: `来自 ${skillFile} 的本地技能。`,
+            description: copy.localSkillDescription(skillFile),
             source: 'local',
             path: skillFile,
           })
@@ -271,7 +253,8 @@ async function readLocalSkills(skillsDir: string) {
   return skills
 }
 
-async function readLocalPlugins(pluginsDir: string) {
+async function readLocalPlugins(pluginsDir: string, locale = currentLocale()) {
+  const copy = getMainCopy(locale)
   const plugins: PluginItem[] = []
 
   try {
@@ -295,7 +278,7 @@ async function readLocalPlugins(pluginsDir: string) {
       plugins.push({
         id: `local-plugin-${entry.name}`,
         name: manifest.name ?? entry.name.replace(/\.json$/, ''),
-        description: manifest.description ?? '来自本地插件目录的扩展。',
+        description: manifest.description ?? copy.localPluginDescription,
         enabled: true,
         source: 'local',
         entryPath: manifestPath,
@@ -308,7 +291,8 @@ async function readLocalPlugins(pluginsDir: string) {
   return plugins
 }
 
-async function ensureStarterAssets(paths: AppPaths): Promise<StarterAssetsResult> {
+async function ensureStarterAssets(paths: AppPaths, locale = currentLocale()): Promise<StarterAssetsResult> {
+  const copy = getMainCopy(locale)
   const created: string[] = []
   const skipped: string[] = []
 
@@ -324,21 +308,7 @@ async function ensureStarterAssets(paths: AppPaths): Promise<StarterAssetsResult
     await fs.mkdir(starterSkillDir, { recursive: true })
     await fs.writeFile(
       starterSkillFile,
-      `# Starter Analysis Skill
-
-## Purpose
-Help AeroClaw summarize imported files, identify action items, and prepare follow-up prompts.
-
-## Workflow
-1. Read the imported files first.
-2. Produce a concise summary.
-3. List risks, open questions, and next actions.
-4. When the user asks for a deeper dive, keep references grounded in the imported material.
-
-## Notes
-- This starter skill lives under ~/.aeroclaw/skills and is separated from any openclaw skill directory.
-- Replace this file with your own workflow instructions at any time.
-`,
+      copy.starterSkillContent,
       'utf8',
     )
     created.push(starterSkillFile)
@@ -352,8 +322,8 @@ Help AeroClaw summarize imported files, identify action items, and prepare follo
       starterPluginManifest,
       JSON.stringify(
         {
-          name: 'Starter Bridge',
-          description: 'A local AeroClaw plugin placeholder for future gateway or workflow integrations.',
+          name: copy.starterPluginManifest.name,
+          description: copy.starterPluginManifest.description,
           version: '0.1.0',
           entry: './README.md',
         },
@@ -364,17 +334,7 @@ Help AeroClaw summarize imported files, identify action items, and prepare follo
     )
     await fs.writeFile(
       starterPluginReadme,
-      `# Starter Bridge
-
-This folder is a starter local plugin for AeroClaw.
-
-Use it to describe:
-- what the plugin should do
-- which local service or gateway it talks to
-- what inputs and outputs it expects
-
-AeroClaw discovers this folder from ~/.aeroclaw/plugins and keeps it separate from openclaw directories.
-`,
+      copy.starterPluginReadme,
       'utf8',
     )
     created.push(starterPluginManifest, starterPluginReadme)
@@ -383,7 +343,8 @@ AeroClaw discovers this folder from ~/.aeroclaw/plugins and keeps it separate fr
   return { created, skipped }
 }
 
-function createDefaultState(paths: AppPaths, skills: SkillItem[], plugins: PluginItem[]): AppState {
+function createDefaultState(paths: AppPaths, skills: SkillItem[], plugins: PluginItem[], locale = currentLocale()): AppState {
+  const copy = getMainCopy(locale)
   const now = new Date().toISOString()
   const starterProviderId = crypto.randomUUID()
   const starterConversationId = crypto.randomUUID()
@@ -391,18 +352,19 @@ function createDefaultState(paths: AppPaths, skills: SkillItem[], plugins: Plugi
   return {
     brandName: BRAND_NAME,
     projectSlug: PROJECT_SLUG,
+    locale,
     activeSection: 'chat',
     activeConversationId: starterConversationId,
     activeProviderId: starterProviderId,
     providers: [
       {
         id: starterProviderId,
-        label: '自定义 OpenAI-Compatible',
+        label: copy.defaultProviderLabel,
         model: 'gpt-4o-mini',
         baseUrl: 'https://api.example.com/v1',
         apiKey: '',
-        tokenSourceName: '自定义 token 源',
-        notes: '安装后只需要换成你自己的 API URL、API Key 和模型名即可使用。',
+        tokenSourceName: copy.defaultTokenSourceName,
+        notes: copy.defaultProviderNotes,
         category: 'custom',
         enabled: true,
       },
@@ -410,8 +372,8 @@ function createDefaultState(paths: AppPaths, skills: SkillItem[], plugins: Plugi
     conversations: [
       {
         id: starterConversationId,
-        title: '欢迎使用 AeroClaw',
-        summary: '独立目录、独立网关、安装后配 token 即可用',
+        title: copy.welcomeTitle,
+        summary: copy.welcomeSummary,
         createdAt: now,
         updatedAt: now,
         gatewaySessionKey: 'main',
@@ -419,9 +381,7 @@ function createDefaultState(paths: AppPaths, skills: SkillItem[], plugins: Plugi
           {
             id: crypto.randomUUID(),
             role: 'assistant',
-            content:
-              '这是你的独立 `AeroClaw` 工作台。它和 `openclaw` 使用不同的配置目录、插件目录和技能目录，所以可以同时安装、同时运行。\n\n' +
-              '你现在可以先在右上角配置一个自定义 token 源，然后直接聊天；也可以先导入文件，让我根据文档内容再帮你分析。',
+            content: copy.welcomeMessage,
             createdAt: now,
             attachments: [],
           },
@@ -453,8 +413,8 @@ function mergePlugins(defaultPlugins: PluginItem[], storedPlugins: PluginItem[])
   ;[...defaultPlugins, ...storedPlugins].forEach((plugin) => {
     const previous = byId.get(plugin.id)
     byId.set(plugin.id, {
-      ...plugin,
-      enabled: previous?.enabled ?? plugin.enabled,
+      ...(previous?.source === 'builtin' && plugin.source === 'builtin' ? previous : plugin),
+      enabled: plugin.enabled ?? previous?.enabled ?? true,
     })
   })
   return Array.from(byId.values())
@@ -468,17 +428,58 @@ function mergeSkills(defaultSkills: SkillItem[], localSkills: SkillItem[]) {
   return Array.from(byId.values())
 }
 
-function normalizeState(state: AppState): AppState {
-  const fallback = createDefaultState(getAppPaths(), [], [])
-  const providers = state.providers.length > 0 ? state.providers : fallback.providers
-  const activeProviderId =
-    providers.find((provider) => provider.id === state.activeProviderId)?.id ?? providers[0].id
-  const conversations = state.conversations.length > 0 ? state.conversations : fallback.conversations
-  const activeConversationId =
-    conversations.find((conversation) => conversation.id === state.activeConversationId)?.id ?? conversations[0].id
+function migrateLegacyDefaultContent(state: AppState): AppState {
+  const englishCopy = getMainCopy('en')
 
   return {
     ...state,
+    providers: state.providers.map((provider) => ({
+      ...provider,
+      label: provider.label === '自定义 OpenAI-Compatible' ? englishCopy.defaultProviderLabel : provider.label,
+      tokenSourceName:
+        provider.tokenSourceName === '自定义 token 源' ? englishCopy.defaultTokenSourceName : provider.tokenSourceName,
+      notes: provider.notes === '安装后只需要换成你自己的 API URL、API Key 和模型名即可使用。'
+        ? englishCopy.defaultProviderNotes
+        : provider.notes,
+    })),
+    conversations: state.conversations.map((conversation) => ({
+      ...conversation,
+      title: conversation.title === '欢迎使用 AeroClaw' ? englishCopy.welcomeTitle : conversation.title,
+      summary:
+        conversation.summary === '独立目录、独立网关、安装后配 token 即可用'
+          ? englishCopy.welcomeSummary
+          : conversation.summary,
+      messages: conversation.messages.map((message) => ({
+        ...message,
+        content:
+          message.content ===
+          '这是你的独立 `AeroClaw` 工作台。它和 `openclaw` 使用不同的配置目录、插件目录和技能目录，所以可以同时安装、同时运行。\n\n' +
+            '你现在可以先在右上角配置一个自定义 token 源，然后直接聊天；也可以先导入文件，让我根据文档内容再帮你分析。'
+            ? englishCopy.welcomeMessage
+            : message.content ===
+                  '新会话已经创建好了。你可以直接提问，也可以先导入一个文件，让我先读材料再帮你分析。'
+              ? 'Your new conversation is ready. Ask a question directly, or import a file first so I can read the material before helping.'
+              : message.content,
+      })),
+    })),
+  }
+}
+
+function normalizeState(state: AppState): AppState {
+  const locale = normalizeLocale((state as Partial<AppState>).locale)
+  const fallback = createDefaultState(getAppPaths(), [], [], locale)
+  const maybeMigrated = (state as Partial<AppState>).locale ? state : migrateLegacyDefaultContent({ ...state, locale })
+  const providers = maybeMigrated.providers.length > 0 ? maybeMigrated.providers : fallback.providers
+  const activeProviderId =
+    providers.find((provider) => provider.id === maybeMigrated.activeProviderId)?.id ?? providers[0].id
+  const conversations = maybeMigrated.conversations.length > 0 ? maybeMigrated.conversations : fallback.conversations
+  const activeConversationId =
+    conversations.find((conversation) => conversation.id === maybeMigrated.activeConversationId)?.id ??
+    conversations[0].id
+
+  return {
+    ...maybeMigrated,
+    locale,
     activeProviderId,
     activeConversationId,
     providers,
@@ -487,17 +488,20 @@ function normalizeState(state: AppState): AppState {
 }
 
 async function loadState(paths: AppPaths) {
-  const [storedState, storedConfig, localSkills, localPlugins] = await Promise.all([
+  const [storedState, storedConfig] = await Promise.all([
     readJsonFile<AppState>(paths.stateFile),
     readJsonFile<Pick<AppState, 'providers' | 'activeProviderId' | 'gateway'>>(paths.configFile),
-    readLocalSkills(paths.skillsDir),
-    readLocalPlugins(paths.pluginsDir),
   ])
-
+  const locale = normalizeLocale(storedState?.locale)
+  const [localSkills, localPlugins] = await Promise.all([
+    readLocalSkills(paths.skillsDir, locale),
+    readLocalPlugins(paths.pluginsDir, locale),
+  ])
   const defaultState = createDefaultState(
     paths,
-    mergeSkills(builtinSkills, localSkills),
-    mergePlugins(builtinPlugins, localPlugins),
+    mergeSkills(builtinSkillsForLocale(locale), localSkills),
+    mergePlugins(builtinPluginsForLocale(locale), localPlugins),
+    locale,
   )
 
   const normalized = normalizeState({
@@ -537,14 +541,9 @@ function buildAttachmentPrompt(attachments: ImportedAttachment[]) {
     return ''
   }
 
+  const copy = currentMainCopy()
   return attachments
-    .map(
-      (attachment) =>
-        `### 导入文件：${attachment.name}\n` +
-        `路径：${attachment.path}\n` +
-        `类型：${attachment.kind}\n` +
-        `内容预览：\n${attachment.preview}`,
-    )
+    .map((attachment) => copy.attachmentBlock(attachment.name, attachment.path, attachment.kind, attachment.preview))
     .join('\n\n')
 }
 
@@ -573,6 +572,7 @@ function extractAssistantContent(payload: unknown) {
 }
 
 async function runChatCompletion(request: ChatRequest): Promise<ChatResult> {
+  const copy = currentMainCopy()
   const gatewaySettings = cachedState?.gateway
 
   if (gatewaySettings?.transport === 'openclaw-compatible') {
@@ -585,11 +585,11 @@ async function runChatCompletion(request: ChatRequest): Promise<ChatResult> {
   }
 
   if (!request.provider.baseUrl.trim()) {
-    throw new Error('当前模型源缺少 API URL。')
+    throw new Error(copy.missingApiUrl)
   }
 
   if (!request.provider.model.trim()) {
-    throw new Error('当前模型源缺少模型名。')
+    throw new Error(copy.missingModel)
   }
 
   const url = `${request.provider.baseUrl.replace(/\/$/, '')}/chat/completions`
@@ -612,9 +612,7 @@ async function runChatCompletion(request: ChatRequest): Promise<ChatResult> {
       messages: [
         {
           role: 'system',
-          content:
-            'You are AeroClaw, a standalone macOS AI workspace compatible with OpenAI-style APIs. ' +
-            'Answer in Chinese unless the user clearly asks otherwise. Summarize attached files faithfully and call out uncertainty.',
+          content: copy.assistantSystemInstruction,
         },
         ...request.history.map((message) => ({
           role: message.role,
@@ -630,13 +628,13 @@ async function runChatCompletion(request: ChatRequest): Promise<ChatResult> {
 
   if (!response.ok) {
     const errorText = await response.text()
-    throw new Error(`模型请求失败 (${response.status})：${errorText}`)
+    throw new Error(copy.requestFailed(response.status, errorText))
   }
 
   const payload = (await response.json()) as unknown
   const content = extractAssistantContent(payload)
   if (!content) {
-    throw new Error('模型响应中没有可读内容。')
+    throw new Error(copy.unreadableModelResponse)
   }
 
   return { content }
@@ -654,14 +652,15 @@ function providerHeaders(provider: ModelProvider) {
 }
 
 async function testProviderConnection(provider: ModelProvider): Promise<ProviderTestResult> {
+  const copy = currentMainCopy()
   const checkedAt = new Date().toISOString()
 
   if (!provider.baseUrl.trim()) {
-    return { ok: false, message: '缺少 API URL。', checkedAt }
+    return { ok: false, message: copy.providerTestMissingApiUrl, checkedAt }
   }
 
   if (!provider.model.trim()) {
-    return { ok: false, message: '缺少模型名。', checkedAt }
+    return { ok: false, message: copy.providerTestMissingModel, checkedAt }
   }
 
   const baseUrl = provider.baseUrl.replace(/\/$/, '')
@@ -683,9 +682,9 @@ async function testProviderConnection(provider: ModelProvider): Promise<Provider
         message:
           modelCount > 0
             ? hasTargetModel
-              ? `连接成功，模型列表里已找到 ${provider.model}。`
-              : `连接成功，拉取到 ${modelCount} 个模型，但未直接看到 ${provider.model}。`
-            : '连接成功，接口可访问。',
+              ? copy.providerConnectedWithModel(provider.model)
+              : copy.providerConnectedWithoutModel(modelCount, provider.model)
+            : copy.providerConnected,
       }
     }
 
@@ -694,12 +693,12 @@ async function testProviderConnection(provider: ModelProvider): Promise<Provider
       return {
         ok: false,
         checkedAt,
-        message: `连接失败 (${modelsResponse.status})：${errorText || '无法访问 /models'}`,
+        message: copy.providerModelsFailed(modelsResponse.status, errorText),
       }
     }
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : '无法访问模型服务'
-    return { ok: false, checkedAt, message: `连接失败：${message}` }
+    const message = error instanceof Error ? error.message : copy.providerServiceUnavailable
+    return { ok: false, checkedAt, message: copy.providerTestFailed(message) }
   }
 
   try {
@@ -724,18 +723,18 @@ async function testProviderConnection(provider: ModelProvider): Promise<Provider
       return {
         ok: false,
         checkedAt,
-        message: `连接失败 (${probeResponse.status})：${errorText || 'chat/completions 探测失败'}`,
+        message: copy.providerChatProbeFailed(probeResponse.status, errorText),
       }
     }
 
     return {
       ok: true,
       checkedAt,
-      message: `连接成功，${provider.model} 已通过对话接口探测。`,
+      message: copy.providerChatProbeSuccess(provider.model),
     }
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'chat/completions 探测失败'
-    return { ok: false, checkedAt, message: `连接失败：${message}` }
+    const message = error instanceof Error ? error.message : 'chat/completions probe failed'
+    return { ok: false, checkedAt, message: copy.providerChatProbeFallbackFailed(message) }
   }
 }
 
@@ -744,6 +743,7 @@ async function probeGatewayConnection(settings: GatewaySettings): Promise<Gatewa
     return await probeOpenClawGateway(settings)
   }
 
+  const copy = currentMainCopy()
   const checkedAt = new Date().toISOString()
   const host = parseGatewayHost(settings.endpoint)
 
@@ -752,7 +752,7 @@ async function probeGatewayConnection(settings: GatewaySettings): Promise<Gatewa
     checkedAt,
     gatewayUrl: `http://${host}:${settings.port}`,
     authMode: 'none',
-    message: '当前是 AeroClaw 的独立本地网关模式。启动本地网关后即可访问兼容接口。',
+    message: copy.localGatewayModeMessage,
   }
 }
 
@@ -994,8 +994,9 @@ function registerIpcHandlers(paths: AppPaths) {
   })
 
   ipcMain.handle('aeroclaw:pick-files', async (): Promise<ImportedAttachment[]> => {
+    const copy = currentMainCopy()
     const result = await dialog.showOpenDialog({
-      title: '导入文件给 AeroClaw 分析',
+      title: copy.filePickerTitle,
       properties: ['multiSelections', 'openFile'],
     })
 
@@ -1003,7 +1004,7 @@ function registerIpcHandlers(paths: AppPaths) {
       return []
     }
 
-    return Promise.all(result.filePaths.map((filePath) => importAttachment(filePath)))
+    return Promise.all(result.filePaths.map((filePath) => importAttachment(filePath, currentLocale())))
   })
 
   ipcMain.handle('aeroclaw:send-chat', async (_event, request: ChatRequest): Promise<ChatResult> =>

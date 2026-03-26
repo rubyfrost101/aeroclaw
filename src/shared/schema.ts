@@ -2,6 +2,7 @@ export type MainSection = 'chat' | 'models' | 'plugins' | 'skills' | 'tasks' | '
 export type MessageRole = 'assistant' | 'system' | 'user'
 export type ProviderCategory = 'custom' | 'preset'
 export type AttachmentKind = 'docx' | 'image' | 'pdf' | 'spreadsheet' | 'text' | 'unknown'
+export type AppLocale = 'en' | 'zh-CN' | 'ja'
 
 export interface ImportedAttachment {
   id: string
@@ -79,6 +80,7 @@ export interface GatewaySettings {
 export interface AppState {
   brandName: string
   projectSlug: string
+  locale: AppLocale
   activeSection: MainSection
   activeConversationId: string
   activeProviderId: string

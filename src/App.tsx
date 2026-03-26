@@ -13,13 +13,15 @@ import {
   Save,
   SendHorizonal,
   Settings,
-  Square,
   Sparkles,
+  Square,
   PlugZap,
   Wrench,
 } from 'lucide-react'
 import './App.css'
+import { LOCALE_OPTIONS, getUiCopy, normalizeLocale } from './shared/i18n'
 import type {
+  AppLocale,
   AppState,
   ConversationMessage,
   ConversationThread,
@@ -43,6 +45,10 @@ type SettingsDraft = {
   password: string
   sessionKey: string
 }
+
+const DEFAULT_LOCALE: AppLocale = 'en'
+const DEFAULT_UI_COPY = getUiCopy(DEFAULT_LOCALE)
+const DEFAULT_CHAT_TITLES = new Set(LOCALE_OPTIONS.map((option) => getUiCopy(option.value).newConversationTitle))
 
 function App() {
   const [appState, setAppState] = useState<AppState | null>(null)
@@ -86,7 +92,7 @@ function App() {
         setGatewayStatus(status)
       })
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : '初始化失败'
+        const message = error instanceof Error ? error.message : DEFAULT_UI_COPY.initFailedTitle
         setStatusMessage(message)
       })
       .finally(() => {
@@ -106,7 +112,8 @@ function App() {
 
     const timer = window.setTimeout(() => {
       window.clawNest.saveState(appState).catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : '保存状态失败'
+        const copy = getUiCopy(normalizeLocale(appState.locale))
+        const message = error instanceof Error ? error.message : copy.refreshStateFailed
         setStatusMessage(message)
       })
     }, 250)
@@ -172,7 +179,14 @@ function App() {
       return
     }
 
-    void syncGatewayCatalog(appState.gateway, true)
+    void window.clawNest
+      .syncGateway(appState.gateway)
+      .then((snapshot) => {
+        setGatewaySnapshot(snapshot)
+      })
+      .catch(() => {
+        setGatewaySnapshot(null)
+      })
   }, [
     appState,
     appState?.gateway.transport,
@@ -187,8 +201,8 @@ function App() {
       <div className="splash-screen">
         <div className="splash-card">
           <span className="splash-badge">AeroClaw</span>
-          <h1>准备你的独立 Claw 工作台</h1>
-          <p>正在加载会话、模型源、技能目录与本地配置。</p>
+          <h1>{DEFAULT_UI_COPY.splashTitle}</h1>
+          <p>{DEFAULT_UI_COPY.splashLoading}</p>
         </div>
       </div>
     )
@@ -199,8 +213,8 @@ function App() {
       <div className="splash-screen">
         <div className="splash-card">
           <span className="splash-badge">AeroClaw</span>
-          <h1>客户端初始化失败</h1>
-          <p>{statusMessage ?? '请重新启动应用。'}</p>
+          <h1>{DEFAULT_UI_COPY.initFailedTitle}</h1>
+          <p>{statusMessage ?? DEFAULT_UI_COPY.restartPrompt}</p>
         </div>
       </div>
     )
@@ -209,6 +223,8 @@ function App() {
   const currentAppState = appState
   const currentConversation = activeConversation
   const currentProvider = activeProvider
+  const locale = normalizeLocale(currentAppState.locale)
+  const copy = getUiCopy(locale)
   const isOpenClawTransport = currentAppState.gateway.transport === 'openclaw-compatible'
 
   const navItems: Array<{
@@ -216,12 +232,12 @@ function App() {
     label: string
     icon: typeof Sparkles
   }> = [
-    { id: 'chat', label: '对话', icon: Sparkles },
-    { id: 'models', label: '模型', icon: BrainCircuit },
-    { id: 'plugins', label: '插件', icon: Blocks },
-    { id: 'skills', label: '技能', icon: Bot },
-    { id: 'tasks', label: '定时任务', icon: Clock3 },
-    { id: 'settings', label: '设置', icon: Settings },
+    { id: 'chat', label: copy.nav.chat, icon: Sparkles },
+    { id: 'models', label: copy.nav.models, icon: BrainCircuit },
+    { id: 'plugins', label: copy.nav.plugins, icon: Blocks },
+    { id: 'skills', label: copy.nav.skills, icon: Bot },
+    { id: 'tasks', label: copy.nav.tasks, icon: Clock3 },
+    { id: 'settings', label: copy.nav.settings, icon: Settings },
   ]
 
   function buildConversationGatewaySessionKey() {
@@ -231,12 +247,12 @@ function App() {
   function resolveGatewaySettingsFromDraft() {
     const port = Number.parseInt(settingsDraft.port, 10)
     if (!settingsDraft.endpoint.trim()) {
-      setStatusMessage('请填写网关地址。')
+      setStatusMessage(copy.gatewayEndpointRequired)
       return null
     }
 
     if (!Number.isFinite(port) || port <= 0) {
-      setStatusMessage('请填写有效端口。')
+      setStatusMessage(copy.gatewayPortInvalid)
       return null
     }
 
@@ -259,7 +275,7 @@ function App() {
       setGatewayProbe(result)
       setStatusMessage(result.message)
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : '网关探测失败'
+      const message = error instanceof Error ? error.message : copy.gatewayProbeFailed
       setStatusMessage(message)
     } finally {
       setIsProbingGateway(false)
@@ -272,12 +288,10 @@ function App() {
       const snapshot = await window.clawNest.syncGateway(settings)
       setGatewaySnapshot(snapshot)
       if (!silent) {
-        setStatusMessage(
-          `已同步 OpenClaw 能力：${snapshot.skills.length} 个技能、${snapshot.tools.length} 个工具、${snapshot.sessions.length} 个会话。`,
-        )
+        setStatusMessage(copy.gatewaySyncSuccess(snapshot.skills.length, snapshot.tools.length, snapshot.sessions.length))
       }
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : '同步 OpenClaw 能力失败'
+      const message = error instanceof Error ? error.message : copy.gatewaySyncFailed
       if (!silent) {
         setStatusMessage(message)
       }
@@ -299,12 +313,29 @@ function App() {
     })
   }
 
+  function updateLocale(nextLocale: AppLocale) {
+    const nextLabel = LOCALE_OPTIONS.find((option) => option.value === nextLocale)?.label ?? nextLocale
+    const nextCopy = getUiCopy(nextLocale)
+
+    setAppState((current) => {
+      if (!current) {
+        return current
+      }
+
+      return {
+        ...current,
+        locale: nextLocale,
+      }
+    })
+    setStatusMessage(nextCopy.languageUpdated(nextLabel))
+  }
+
   function createConversation() {
     const now = new Date().toISOString()
     const conversation: ConversationThread = {
       id: crypto.randomUUID(),
-      title: '新对话',
-      summary: '准备开始新的任务',
+      title: copy.newConversationTitle,
+      summary: copy.newConversationSummary,
       createdAt: now,
       updatedAt: now,
       gatewaySessionKey: isOpenClawTransport ? buildConversationGatewaySessionKey() : undefined,
@@ -312,8 +343,7 @@ function App() {
         {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content:
-            '新会话已经创建好了。你可以直接提问，也可以先导入一个文件，让我先读材料再帮你分析。',
+          content: copy.newConversationMessage,
           createdAt: now,
           attachments: [],
         },
@@ -365,13 +395,19 @@ function App() {
     setProviderManagerOpen(true)
   }
 
+  function closeProviderManager() {
+    setProviderManagerOpen(false)
+    setEditingProvider(null)
+    setProviderDraft(null)
+  }
+
   function saveProvider() {
     if (!providerDraft) {
       return
     }
 
     if (!providerDraft.label.trim() || !providerDraft.model.trim() || !providerDraft.baseUrl.trim()) {
-      setStatusMessage('请至少填写名称、模型名和 API URL。')
+      setStatusMessage(copy.providerRequiredFields)
       return
     }
 
@@ -380,7 +416,7 @@ function App() {
       label: providerDraft.label.trim(),
       model: providerDraft.model.trim(),
       baseUrl: providerDraft.baseUrl.trim().replace(/\/$/, ''),
-      tokenSourceName: providerDraft.tokenSourceName.trim() || '自定义 token 源',
+      tokenSourceName: providerDraft.tokenSourceName.trim() || copy.defaultTokenSourceName,
       notes: providerDraft.notes.trim(),
     }
 
@@ -407,10 +443,8 @@ function App() {
       }
     })
 
-    setProviderManagerOpen(false)
-    setEditingProvider(null)
-    setProviderDraft(null)
-    setStatusMessage(editingProvider ? '模型源已更新。' : '新的模型源已添加。')
+    closeProviderManager()
+    setStatusMessage(editingProvider ? copy.providerUpdated : copy.providerAdded)
   }
 
   function deleteProvider(providerId: string) {
@@ -449,9 +483,9 @@ function App() {
     try {
       const payload = await window.clawNest.bootstrap()
       setAppState(payload.state)
-      setStatusMessage('已重新加载本地配置、插件与技能目录。')
+      setStatusMessage(getUiCopy(normalizeLocale(payload.state.locale)).refreshedState)
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : '刷新本地状态失败'
+      const message = error instanceof Error ? error.message : copy.refreshStateFailed
       setStatusMessage(message)
     } finally {
       setIsRefreshingState(false)
@@ -463,7 +497,7 @@ function App() {
       const status = await window.clawNest.getGatewayStatus()
       setGatewayStatus(status)
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : '读取网关状态失败'
+      const message = error instanceof Error ? error.message : copy.gatewayStatusReadFailed
       setStatusMessage(message)
     }
   }
@@ -473,9 +507,9 @@ function App() {
     try {
       const status = await window.clawNest.startGateway()
       setGatewayStatus(status)
-      setStatusMessage(`网关已启动：${status.url}`)
+      setStatusMessage(copy.gatewayStarted(status.url))
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : '启动网关失败'
+      const message = error instanceof Error ? error.message : copy.gatewayStartFailed
       setStatusMessage(message)
       await refreshGatewayStatus()
     } finally {
@@ -488,9 +522,9 @@ function App() {
     try {
       const status = await window.clawNest.stopGateway()
       setGatewayStatus(status)
-      setStatusMessage('网关已停止。')
+      setStatusMessage(copy.gatewayStopped)
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : '停止网关失败'
+      const message = error instanceof Error ? error.message : copy.gatewayStopFailed
       setStatusMessage(message)
       await refreshGatewayStatus()
     } finally {
@@ -504,12 +538,10 @@ function App() {
       const result = await window.clawNest.createStarterAssets()
       await refreshStateFromDisk()
       setStatusMessage(
-        result.created.length > 0
-          ? `已生成 ${result.created.length} 个本地模板文件。`
-          : '本地模板已经存在，没有重复覆盖。',
+        result.created.length > 0 ? copy.starterAssetsCreated(result.created.length) : copy.starterAssetsSkipped,
       )
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : '生成模板失败'
+      const message = error instanceof Error ? error.message : copy.starterAssetsFailed
       setStatusMessage(message)
     } finally {
       setIsCreatingAssets(false)
@@ -523,7 +555,7 @@ function App() {
       setProviderChecks((current) => ({ ...current, [provider.id]: result }))
       setStatusMessage(result.message)
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : '模型源测试失败'
+      const message = error instanceof Error ? error.message : copy.providerTestFailed
       setStatusMessage(message)
     } finally {
       setTestingProviderId(null)
@@ -541,7 +573,7 @@ function App() {
       setStatusMessage(result.message)
       setProviderChecks((current) => ({ ...current, [providerDraft.id]: result }))
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : '模型源测试失败'
+      const message = error instanceof Error ? error.message : copy.providerTestFailed
       setStatusMessage(message)
     } finally {
       setTestingDraftProvider(false)
@@ -567,7 +599,7 @@ function App() {
       void syncGatewayCatalog(nextGatewaySettings, true)
     }
 
-    setStatusMessage('独立网关设置已更新。')
+    setStatusMessage(copy.gatewaySettingsUpdated)
   }
 
   async function importFiles() {
@@ -590,7 +622,7 @@ function App() {
         return next
       })
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : '导入文件失败'
+      const message = error instanceof Error ? error.message : copy.importFilesFailed
       setStatusMessage(message)
     }
   }
@@ -606,13 +638,13 @@ function App() {
     }
 
     if (!isOpenClawTransport && (!currentProvider.baseUrl || !currentProvider.model)) {
-      setStatusMessage('请先在右上角配置一个可用的模型源。')
+      setStatusMessage(copy.configureProviderFirst)
       setProviderManagerOpen(true)
       return
     }
 
     const now = new Date().toISOString()
-    const userPrompt = prompt || '请先阅读并分析我导入的文件，再给出结构化结论。'
+    const userPrompt = prompt || copy.analyzeImportedFilesPrompt
     const userMessage: ConversationMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -636,10 +668,9 @@ function App() {
             return conversation
           }
 
-          const nextTitle =
-            conversation.title === '新对话'
-              ? userPrompt.slice(0, 18) || queuedAttachments[0]?.name || '新对话'
-              : conversation.title
+          const nextTitle = DEFAULT_CHAT_TITLES.has(conversation.title)
+            ? userPrompt.slice(0, 18) || queuedAttachments[0]?.name || copy.newConversationTitle
+            : conversation.title
 
           return {
             ...conversation,
@@ -693,7 +724,7 @@ function App() {
         }
       })
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : '发送失败'
+      const message = error instanceof Error ? error.message : copy.sendFailed
       setStatusMessage(message)
 
       setAppState((current) => {
@@ -713,11 +744,7 @@ function App() {
                     {
                       id: crypto.randomUUID(),
                       role: 'assistant',
-                      content:
-                        `这次请求没有成功发出去：${message}\n\n` +
-                        (isOpenClawTransport
-                          ? '你可以先检查设置页里的 OpenClaw Gateway 地址、认证信息和 sessionKey，然后再试一次。'
-                          : '你可以检查右上角模型源里的 API URL、API Key 和模型名是否正确，然后再试一次。'),
+                      content: copy.failedRequestMessage(message, isOpenClawTransport),
                       createdAt: new Date().toISOString(),
                       attachments: [],
                     },
@@ -758,7 +785,7 @@ function App() {
       >
         <span className="conversation-role">Main Agent</span>
         <strong>{conversation.title}</strong>
-        <p>{conversation.summary || '等待新的任务'}</p>
+        <p>{conversation.summary || copy.waitingNewTask}</p>
         {isOpenClawTransport && conversation.gatewaySessionKey ? (
           <small>{conversation.gatewaySessionKey}</small>
         ) : null}
@@ -774,10 +801,10 @@ function App() {
     return (
       <article key={provider.id} className={`provider-card ${isActive ? 'is-active' : ''}`}>
         <div>
-          <span className="provider-badge">{provider.tokenSourceName || '自定义源'}</span>
+          <span className="provider-badge">{provider.tokenSourceName || copy.customSource}</span>
           <h3>{provider.label}</h3>
           <p>{provider.model}</p>
-          <small>{provider.baseUrl || '等待配置 API URL'}</small>
+          <small>{provider.baseUrl || copy.pendingApiUrl}</small>
         </div>
         {checkResult ? (
           <p className={`provider-health ${checkResult.ok ? 'is-ok' : 'is-error'}`}>{checkResult.message}</p>
@@ -785,17 +812,17 @@ function App() {
         <div className="provider-actions">
           <button className="ghost-button" onClick={() => void runProviderTest(provider)}>
             <RefreshCw size={16} className={isTesting ? 'spin' : ''} />
-            测试
+            {copy.test}
           </button>
           <button className="ghost-button" onClick={() => selectProvider(provider.id)}>
-            设为当前
+            {copy.setCurrent}
           </button>
           <button className="ghost-button" onClick={() => openProviderManager(provider)}>
-            编辑
+            {copy.edit}
           </button>
           {currentAppState.providers.length > 1 ? (
             <button className="danger-button" onClick={() => deleteProvider(provider.id)}>
-              删除
+              {copy.delete}
             </button>
           ) : null}
         </div>
@@ -808,14 +835,14 @@ function App() {
       <article key={plugin.id} className="feature-card">
         <div className="feature-card__header">
           <div>
-            <span className="provider-badge">{plugin.source === 'builtin' ? 'Built-in' : 'Local'}</span>
+            <span className="provider-badge">{plugin.source === 'builtin' ? 'Built-in' : copy.local}</span>
             <h3>{plugin.name}</h3>
           </div>
           <button
             className={`toggle-button ${plugin.enabled ? 'is-on' : ''}`}
             onClick={() => togglePlugin(plugin.id)}
           >
-            {plugin.enabled ? '已启用' : '已关闭'}
+            {plugin.enabled ? copy.enabled : copy.disabled}
           </button>
         </div>
         <p>{plugin.description}</p>
@@ -830,16 +857,16 @@ function App() {
           <aside className="thread-pane fade-up">
             <div className="thread-pane__header">
               <div>
-                <span className="eyebrow">二级会话</span>
-                <h2>对话</h2>
+                <span className="eyebrow">{copy.subConversations}</span>
+                <h2>{copy.chatHeading}</h2>
               </div>
-              <button className="icon-button" onClick={createConversation} aria-label="新增对话">
+              <button className="icon-button" onClick={createConversation} aria-label={copy.newConversationAria}>
                 <Plus size={18} />
               </button>
             </div>
             <button className="primary-button" onClick={createConversation}>
               <Plus size={16} />
-              新增对话
+              {copy.newConversation}
             </button>
             <div className="thread-list">{currentAppState.conversations.map(renderConversationCard)}</div>
           </aside>
@@ -847,18 +874,20 @@ function App() {
           <section className="chat-panel fade-up">
             <header className="chat-header">
               <div>
-                <span className="eyebrow">当前会话</span>
+                <span className="eyebrow">{copy.currentConversation}</span>
                 <h2>{currentConversation.title}</h2>
-                <p>{currentConversation.summary || '把问题、文件和任务交给我。'}</p>
+                <p>{currentConversation.summary || copy.handoffPrompt}</p>
                 {isOpenClawTransport ? (
-                  <small>Gateway Session: {currentConversation.gatewaySessionKey || currentAppState.gateway.sessionKey}</small>
+                  <small>
+                    Gateway Session: {currentConversation.gatewaySessionKey || currentAppState.gateway.sessionKey}
+                  </small>
                 ) : null}
               </div>
               <button
                 className="provider-switcher"
                 onClick={() => (isOpenClawTransport ? setSection('settings') : setProviderManagerOpen(true))}
               >
-                <span className="provider-switcher__status">READY</span>
+                <span className="provider-switcher__status">{copy.currentSourceReady}</span>
                 <div>
                   <strong>{isOpenClawTransport ? 'OpenClaw Gateway' : currentProvider.label}</strong>
                   <small>{isOpenClawTransport ? currentAppState.gateway.endpoint : currentProvider.model}</small>
@@ -870,7 +899,11 @@ function App() {
               {currentConversation.messages.map((message) => (
                 <article key={message.id} className={`message-bubble ${message.role}`}>
                   <span className="message-role">
-                    {message.role === 'assistant' ? 'AeroClaw' : message.role === 'user' ? '你' : '系统'}
+                    {message.role === 'assistant'
+                      ? copy.assistantName
+                      : message.role === 'user'
+                        ? copy.youLabel
+                        : copy.systemLabel}
                   </span>
                   <p>{message.content}</p>
                   {message.attachments.length > 0 ? (
@@ -887,8 +920,8 @@ function App() {
               ))}
               {isSending ? (
                 <article className="message-bubble assistant">
-                  <span className="message-role">AeroClaw</span>
-                  <p>正在调用当前模型源并整理回答，请稍等。</p>
+                  <span className="message-role">{copy.assistantName}</span>
+                  <p>{copy.assistantTyping}</p>
                 </article>
               ) : null}
               <div ref={messageEndRef} />
@@ -905,20 +938,20 @@ function App() {
                     >
                       <Paperclip size={14} />
                       <span>{attachment.name}</span>
-                      <small>移除</small>
+                      <small>{copy.remove}</small>
                     </button>
                   ))}
                 </div>
               ) : null}
 
               <div className="composer-input">
-                <button className="icon-button" onClick={importFiles} aria-label="导入文件">
+                <button className="icon-button" onClick={importFiles} aria-label={copy.importFilesAria}>
                   <Paperclip size={18} />
                 </button>
                 <textarea
                   value={composerText}
                   onChange={(event) => setComposerText(event.target.value)}
-                  placeholder="给 AeroClaw 发送任务，或先导入文件让我读材料。"
+                  placeholder={copy.composerPlaceholder}
                   rows={3}
                 />
                 <button className="send-button" onClick={() => void sendMessage()} disabled={isSending}>
@@ -928,12 +961,16 @@ function App() {
 
               <div className="composer-meta">
                 <span>
-                  传输模式：{isOpenClawTransport ? 'OpenClaw-Compatible' : 'OpenAI-Compatible'}
+                  {copy.transportMode}: {isOpenClawTransport ? 'OpenClaw-Compatible' : 'OpenAI-Compatible'}
                 </span>
                 {isOpenClawTransport ? (
-                  <span>SessionKey：{currentConversation.gatewaySessionKey || currentAppState.gateway.sessionKey}</span>
+                  <span>
+                    {copy.sessionKey}: {currentConversation.gatewaySessionKey || currentAppState.gateway.sessionKey}
+                  </span>
                 ) : null}
-                <span>配置目录：{currentAppState.gateway.configDir}</span>
+                <span>
+                  {copy.configDirectory}: {currentAppState.gateway.configDir}
+                </span>
               </div>
             </footer>
           </section>
@@ -946,16 +983,16 @@ function App() {
         <section className="page-panel fade-up">
           <div className="page-header">
             <div>
-              <span className="eyebrow">PoorClaw 风格</span>
-              <h2>模型与 Token 源</h2>
+              <span className="eyebrow">{copy.poorClawStyle}</span>
+              <h2>{copy.modelsTitle}</h2>
               <p>
-                这里统一管理自定义 endpoint、模型名、API Key 和默认切换入口。
-                {isOpenClawTransport ? ' 当前聊天已切到 OpenClaw Gateway 模式，模型配置由远端网关决定。' : ''}
+                {copy.modelsDescription}
+                {isOpenClawTransport ? ` ${copy.modelsGatewaySuffix}` : ''}
               </p>
             </div>
             <button className="primary-button" onClick={() => openProviderManager()}>
               <Plus size={16} />
-              新增模型源
+              {copy.addProvider}
             </button>
           </div>
           <div className="grid-cards">{currentAppState.providers.map(renderProviderCard)}</div>
@@ -969,23 +1006,23 @@ function App() {
           <div className="page-header">
             <div>
               <span className="eyebrow">Plugin Ready</span>
-              <h2>插件集成</h2>
-              <p>先内置几类常用插件入口，同时为本地插件目录保留扩展位。</p>
+              <h2>{copy.pluginsTitle}</h2>
+              <p>{copy.pluginsDescription}</p>
             </div>
             <button
               className="ghost-button"
               onClick={() => void window.clawNest.revealInFinder(currentAppState.gateway.pluginsDir)}
             >
               <FolderKanban size={16} />
-              打开插件目录
+              {copy.openPluginsDir}
             </button>
             <button className="ghost-button" onClick={() => void createStarterAssets()}>
               <PlugZap size={16} />
-              {isCreatingAssets ? '生成中' : '生成本地模板'}
+              {isCreatingAssets ? copy.creating : copy.createLocalTemplate}
             </button>
             <button className="ghost-button" onClick={() => void refreshStateFromDisk()}>
               <RefreshCw size={16} className={isRefreshingState ? 'spin' : ''} />
-              刷新目录
+              {copy.refreshDirectory}
             </button>
           </div>
           <div className="grid-cards">
@@ -994,7 +1031,7 @@ function App() {
               <article key={`gateway-tool-${tool.id}`} className="feature-card">
                 <div className="feature-card__header">
                   <div>
-                    <span className="provider-badge">{tool.source === 'plugin' ? 'Gateway Plugin' : 'Gateway Tool'}</span>
+                    <span className="provider-badge">{tool.source === 'plugin' ? copy.gatewayPlugin : copy.gatewayTool}</span>
                     <h3>{tool.label}</h3>
                   </div>
                 </div>
@@ -1016,23 +1053,23 @@ function App() {
           <div className="page-header">
             <div>
               <span className="eyebrow">Skill Compatibility</span>
-              <h2>技能目录</h2>
-              <p>默认使用独立的 `~/.aeroclaw/skills`，与 `openclaw` 完全分离，可并行共存。</p>
+              <h2>{copy.skillsTitle}</h2>
+              <p>{copy.skillsDescription}</p>
             </div>
             <button
               className="ghost-button"
               onClick={() => void window.clawNest.revealInFinder(currentAppState.gateway.skillsDir)}
             >
               <FolderKanban size={16} />
-              打开技能目录
+              {copy.openSkillsDir}
             </button>
             <button className="ghost-button" onClick={() => void createStarterAssets()}>
               <Plus size={16} />
-              {isCreatingAssets ? '生成中' : '生成技能模板'}
+              {isCreatingAssets ? copy.creating : copy.createSkillTemplate}
             </button>
             <button className="ghost-button" onClick={() => void refreshStateFromDisk()}>
               <RefreshCw size={16} className={isRefreshingState ? 'spin' : ''} />
-              刷新目录
+              {copy.refreshDirectory}
             </button>
           </div>
           <div className="grid-cards">
@@ -1040,7 +1077,7 @@ function App() {
               <article key={skill.id} className="feature-card">
                 <div className="feature-card__header">
                   <div>
-                    <span className="provider-badge">{skill.source === 'local' ? 'Local' : 'Bundled'}</span>
+                    <span className="provider-badge">{skill.source === 'local' ? copy.local : copy.bundled}</span>
                     <h3>{skill.name}</h3>
                   </div>
                 </div>
@@ -1052,14 +1089,14 @@ function App() {
               <article key={`gateway-skill-${skill.id}`} className="feature-card">
                 <div className="feature-card__header">
                   <div>
-                    <span className="provider-badge">Gateway Skill</span>
+                    <span className="provider-badge">{copy.gatewaySkill}</span>
                     <h3>{skill.name}</h3>
                   </div>
                 </div>
                 <p>{skill.description}</p>
                 <small>
                   {skill.source}
-                  {skill.eligible ? ' · eligible' : ' · unavailable'}
+                  {skill.eligible ? ` · ${copy.eligible}` : ` · ${copy.unavailable}`}
                 </small>
               </article>
             ))}
@@ -1074,8 +1111,8 @@ function App() {
           <div className="page-header">
             <div>
               <span className="eyebrow">OpenClaw Compatible</span>
-              <h2>定时任务</h2>
-              <p>任务中心已预留，后续可以直接对接兼容网关，把自动化、频道任务和工作流都收进来。</p>
+              <h2>{copy.tasksTitle}</h2>
+              <p>{copy.tasksDescription}</p>
             </div>
           </div>
           <div className="grid-cards">
@@ -1083,19 +1120,19 @@ function App() {
               <div className="feature-card__header">
                 <div>
                   <span className="provider-badge">Next</span>
-                  <h3>每日情报整理</h3>
+                  <h3>{copy.dailyBriefing}</h3>
                 </div>
               </div>
-              <p>后续可直接把计划任务、频道消息、插件流程绑定到单独网关上运行。</p>
+              <p>{copy.dailyBriefingDescription}</p>
             </article>
             <article className="feature-card">
               <div className="feature-card__header">
                 <div>
                   <span className="provider-badge">Ready</span>
-                  <h3>双开隔离</h3>
+                  <h3>{copy.doubleIsolation}</h3>
                 </div>
               </div>
-              <p>`openclaw` 和 `AeroClaw` 未来可以分别连接不同端口和不同工作目录，避免相互污染。</p>
+              <p>{copy.doubleIsolationDescription}</p>
             </article>
           </div>
         </section>
@@ -1107,50 +1144,71 @@ function App() {
         <div className="page-header">
           <div>
             <span className="eyebrow">Workspace Settings</span>
-            <h2>设置</h2>
-            <p>这里保留独立品牌名、独立目录、独立网关地址，确保它和 `openclaw` 能同时安装使用。</p>
+            <h2>{copy.settingsTitle}</h2>
+            <p>{copy.settingsDescription}</p>
+          </div>
+        </div>
+        <div className="settings-form-card">
+          <div className="feature-card__header">
+            <div>
+              <span className="provider-badge">{copy.languageLabel}</span>
+              <h3>{copy.languageSectionTitle}</h3>
+            </div>
+          </div>
+          <p>{copy.languageSectionDescription}</p>
+          <div className="settings-form-grid">
+            <label className="full-span">
+              <span>{copy.languageLabel}</span>
+              <select value={locale} onChange={(event) => updateLocale(event.target.value as AppLocale)}>
+                {LOCALE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
         <div className="settings-form-card">
           <div className="feature-card__header">
             <div>
               <span className="provider-badge">Gateway Runtime</span>
-              <h3>本地独立网关</h3>
+              <h3>{copy.gatewayRuntimeTitle}</h3>
             </div>
             <div className="provider-actions">
               <button className="ghost-button" onClick={() => void refreshGatewayStatus()}>
                 <RefreshCw size={16} className={isUpdatingGatewayRuntime ? 'spin' : ''} />
-                刷新状态
+                {copy.refreshStatus}
               </button>
               {gatewayStatus?.running ? (
                 <button className="danger-button" onClick={() => void stopGateway()}>
                   <Square size={16} />
-                  停止网关
+                  {copy.stopGateway}
                 </button>
               ) : (
                 <button className="primary-button" onClick={() => void startGateway()}>
                   <Play size={16} />
-                  启动网关
+                  {copy.startGateway}
                 </button>
               )}
             </div>
           </div>
           <div className="settings-grid compact-grid">
             <article className="setting-card compact">
-              <h3>运行状态</h3>
-              <p>{gatewayStatus?.running ? '运行中' : '未启动'}</p>
+              <h3>{copy.runtimeStatus}</h3>
+              <p>{gatewayStatus?.running ? copy.running : copy.stopped}</p>
             </article>
             <article className="setting-card compact">
-              <h3>访问地址</h3>
+              <h3>{copy.accessUrl}</h3>
               <p>{gatewayStatus?.url ?? `http://127.0.0.1:${currentAppState.gateway.port}`}</p>
             </article>
             <article className="setting-card compact">
-              <h3>启动时间</h3>
-              <p>{gatewayStatus?.startedAt ?? '尚未启动'}</p>
+              <h3>{copy.startedAt}</h3>
+              <p>{gatewayStatus?.startedAt ?? copy.notStartedYet}</p>
             </article>
             <article className="setting-card compact">
-              <h3>最近错误</h3>
-              <p>{gatewayStatus?.lastError ?? '无'}</p>
+              <h3>{copy.lastError}</h3>
+              <p>{gatewayStatus?.lastError ?? copy.none}</p>
             </article>
           </div>
         </div>
@@ -1158,7 +1216,7 @@ function App() {
           <div className="feature-card__header">
             <div>
               <span className="provider-badge">Gateway</span>
-              <h3>独立网关设置</h3>
+              <h3>{copy.gatewaySettingsTitle}</h3>
             </div>
             <div className="provider-actions">
               <button
@@ -1171,7 +1229,7 @@ function App() {
                 }}
               >
                 <Wrench size={16} className={isProbingGateway ? 'spin' : ''} />
-                探测网关
+                {copy.probeGateway}
               </button>
               <button
                 className="ghost-button"
@@ -1183,23 +1241,23 @@ function App() {
                 }}
               >
                 <RefreshCw size={16} className={isSyncingGateway ? 'spin' : ''} />
-                同步能力
+                {copy.syncCapabilities}
               </button>
               <button className="primary-button" onClick={saveGatewaySettings}>
                 <Save size={16} />
-                保存设置
+                {copy.saveSettings}
               </button>
             </div>
           </div>
           <div className="settings-form-grid">
             <label>
-              <span>传输模式</span>
+              <span>{copy.transportModeLabel}</span>
               <select
                 value={settingsDraft.transport}
                 onChange={(event) =>
                   setSettingsDraft((current) => ({
                     ...current,
-                    transport: event.target.value as 'openai-compatible' | 'openclaw-compatible',
+                    transport: event.target.value as GatewaySettings['transport'],
                   }))
                 }
               >
@@ -1208,7 +1266,7 @@ function App() {
               </select>
             </label>
             <label>
-              <span>默认端口</span>
+              <span>{copy.defaultPort}</span>
               <input
                 value={settingsDraft.port}
                 onChange={(event) =>
@@ -1221,7 +1279,7 @@ function App() {
               />
             </label>
             <label className="full-span">
-              <span>默认网关地址</span>
+              <span>{copy.defaultGatewayEndpoint}</span>
               <input
                 value={settingsDraft.endpoint}
                 onChange={(event) =>
@@ -1234,7 +1292,7 @@ function App() {
               />
             </label>
             <label className="full-span">
-              <span>Canvas 路径</span>
+              <span>{copy.canvasPath}</span>
               <input
                 value={settingsDraft.canvasPath}
                 onChange={(event) =>
@@ -1256,7 +1314,7 @@ function App() {
                     authToken: event.target.value,
                   }))
                 }
-                placeholder="OpenClaw 共享 token，可为空"
+                placeholder={copy.sharedGatewayTokenPlaceholder}
               />
             </label>
             <label className="full-span">
@@ -1270,11 +1328,11 @@ function App() {
                     password: event.target.value,
                   }))
                 }
-                placeholder="如你的网关使用密码模式，在这里填写"
+                placeholder={copy.gatewayPasswordPlaceholder}
               />
             </label>
             <label className="full-span">
-              <span>默认 SessionKey</span>
+              <span>{copy.defaultSessionKey}</span>
               <input
                 value={settingsDraft.sessionKey}
                 onChange={(event) =>
@@ -1290,19 +1348,19 @@ function App() {
           {gatewayProbe ? (
             <div className="settings-grid compact-grid">
               <article className="setting-card compact">
-                <h3>探测结果</h3>
-                <p>{gatewayProbe.ok ? '已连通' : '未连通'}</p>
+                <h3>{copy.probeResult}</h3>
+                <p>{gatewayProbe.ok ? copy.connected : copy.disconnected}</p>
               </article>
               <article className="setting-card compact">
-                <h3>认证方式</h3>
+                <h3>{copy.authMode}</h3>
                 <p>{gatewayProbe.authMode ?? 'none'}</p>
               </article>
               <article className="setting-card compact">
-                <h3>网关地址</h3>
-                <p>{gatewayProbe.gatewayUrl ?? '尚未返回'}</p>
+                <h3>{copy.gatewayAddress}</h3>
+                <p>{gatewayProbe.gatewayUrl ?? copy.notReturnedYet}</p>
               </article>
               <article className="setting-card compact">
-                <h3>检查时间</h3>
+                <h3>{copy.checkedAt}</h3>
                 <p>{gatewayProbe.checkedAt}</p>
               </article>
             </div>
@@ -1310,19 +1368,19 @@ function App() {
           {gatewaySnapshot ? (
             <div className="settings-grid compact-grid">
               <article className="setting-card compact">
-                <h3>OpenClaw 会话</h3>
+                <h3>{copy.openClawSessions}</h3>
                 <p>{gatewaySnapshot.sessions.length}</p>
               </article>
               <article className="setting-card compact">
-                <h3>OpenClaw 技能</h3>
+                <h3>{copy.openClawSkills}</h3>
                 <p>{gatewaySnapshot.skills.length}</p>
               </article>
               <article className="setting-card compact">
-                <h3>OpenClaw 工具</h3>
+                <h3>{copy.openClawTools}</h3>
                 <p>{gatewaySnapshot.tools.length}</p>
               </article>
               <article className="setting-card compact">
-                <h3>模型目录</h3>
+                <h3>{copy.modelCatalog}</h3>
                 <p>{gatewaySnapshot.models.length}</p>
               </article>
             </div>
@@ -1330,55 +1388,55 @@ function App() {
         </div>
         <div className="settings-grid">
           <article className="setting-card">
-            <h3>品牌名</h3>
+            <h3>{copy.brandName}</h3>
             <p>{currentAppState.brandName}</p>
           </article>
           <article className="setting-card">
-            <h3>配置文件</h3>
+            <h3>{copy.configFile}</h3>
             <p>{currentAppState.gateway.configFile}</p>
           </article>
           <article className="setting-card">
-            <h3>工作目录</h3>
+            <h3>{copy.workspaceDir}</h3>
             <p>{currentAppState.gateway.workspaceDir}</p>
           </article>
           <article className="setting-card">
-            <h3>默认网关</h3>
+            <h3>{copy.defaultGateway}</h3>
             <p>
               {currentAppState.gateway.endpoint}:{currentAppState.gateway.port}
             </p>
           </article>
           <article className="setting-card">
-            <h3>Canvas 路径</h3>
+            <h3>{copy.canvasPath}</h3>
             <p>{currentAppState.gateway.canvasPath}</p>
           </article>
           <article className="setting-card">
-            <h3>默认 SessionKey</h3>
+            <h3>{copy.defaultSessionKey}</h3>
             <p>{currentAppState.gateway.sessionKey}</p>
           </article>
           <article className="setting-card">
-            <h3>独立目标</h3>
-            <p>与 `openclaw` 目录、网关名、配置文件名全部分开。</p>
+            <h3>{copy.separationGoal}</h3>
+            <p>{copy.separationDescription}</p>
           </article>
           <article className="setting-card">
-            <h3>插件目录</h3>
+            <h3>{copy.pluginsDir}</h3>
             <p>{currentAppState.gateway.pluginsDir}</p>
             <button
               className="ghost-button inline-setting-action"
               onClick={() => void window.clawNest.revealInFinder(currentAppState.gateway.pluginsDir)}
             >
               <FolderCog size={16} />
-              打开目录
+              {copy.openDirectory}
             </button>
           </article>
           <article className="setting-card">
-            <h3>技能目录</h3>
+            <h3>{copy.skillsDir}</h3>
             <p>{currentAppState.gateway.skillsDir}</p>
             <button
               className="ghost-button inline-setting-action"
               onClick={() => void window.clawNest.revealInFinder(currentAppState.gateway.skillsDir)}
             >
               <FolderCog size={16} />
-              打开目录
+              {copy.openDirectory}
             </button>
           </article>
         </div>
@@ -1393,13 +1451,13 @@ function App() {
           <div className="brand-mark">A</div>
           <div>
             <strong>{currentAppState.brandName}</strong>
-            <p>独立的 macOS Claw 客户端</p>
+            <p>{copy.sidebarTagline}</p>
           </div>
         </div>
 
         <button className="primary-button" onClick={createConversation}>
           <Plus size={16} />
-          新对话
+          {copy.newConversation}
         </button>
 
         <nav className="primary-nav">
@@ -1421,8 +1479,18 @@ function App() {
         </nav>
 
         <div className="sidebar-footer">
-          <span className="eyebrow">Separated Workspace</span>
+          <span className="eyebrow">{copy.separatedWorkspace}</span>
           <p>{currentAppState.gateway.configDir}</p>
+          <label className="sidebar-language">
+            <span>{copy.languageLabel}</span>
+            <select value={locale} onChange={(event) => updateLocale(event.target.value as AppLocale)}>
+              {LOCALE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </aside>
 
@@ -1436,31 +1504,31 @@ function App() {
       ) : null}
 
       {providerManagerOpen && providerDraft ? (
-        <div className="modal-backdrop" onClick={() => setProviderManagerOpen(false)}>
+        <div className="modal-backdrop" onClick={closeProviderManager}>
           <section className="provider-sheet" onClick={(event) => event.stopPropagation()}>
             <header className="provider-sheet__header">
               <div>
-                <span className="eyebrow">Custom API Endpoint</span>
-                <h2>{editingProvider ? '编辑模型源' : '新增模型源'}</h2>
+                <span className="eyebrow">{copy.providerSheetEyebrow}</span>
+                <h2>{editingProvider ? copy.editProviderTitle : copy.addProviderTitle}</h2>
               </div>
-              <button className="icon-button" onClick={() => setProviderManagerOpen(false)} aria-label="关闭">
+              <button className="icon-button" onClick={closeProviderManager} aria-label={copy.close}>
                 <Wrench size={16} />
               </button>
             </header>
 
             <div className="provider-sheet__grid">
               <label>
-                <span>显示名称</span>
+                <span>{copy.displayName}</span>
                 <input
                   value={providerDraft.label}
                   onChange={(event) =>
                     setProviderDraft((current) => (current ? { ...current, label: event.target.value } : current))
                   }
-                  placeholder="例如：自定义 Qwen"
+                  placeholder={copy.displayNamePlaceholder}
                 />
               </label>
               <label>
-                <span>Token 源名</span>
+                <span>{copy.tokenSourceName}</span>
                 <input
                   value={providerDraft.tokenSourceName}
                   onChange={(event) =>
@@ -1468,11 +1536,11 @@ function App() {
                       current ? { ...current, tokenSourceName: event.target.value } : current,
                     )
                   }
-                  placeholder="例如：NVIDIA / SiliconFlow / 自建网关"
+                  placeholder={copy.tokenSourcePlaceholder}
                 />
               </label>
               <label className="full-span">
-                <span>API URL</span>
+                <span>{copy.apiUrl}</span>
                 <input
                   value={providerDraft.baseUrl}
                   onChange={(event) =>
@@ -1482,7 +1550,7 @@ function App() {
                 />
               </label>
               <label>
-                <span>API Key</span>
+                <span>{copy.apiKey}</span>
                 <input
                   type="password"
                   value={providerDraft.apiKey}
@@ -1493,7 +1561,7 @@ function App() {
                 />
               </label>
               <label>
-                <span>模型名</span>
+                <span>{copy.modelName}</span>
                 <input
                   value={providerDraft.model}
                   onChange={(event) =>
@@ -1503,14 +1571,14 @@ function App() {
                 />
               </label>
               <label className="full-span">
-                <span>备注</span>
+                <span>{copy.notes}</span>
                 <textarea
                   rows={3}
                   value={providerDraft.notes}
                   onChange={(event) =>
                     setProviderDraft((current) => (current ? { ...current, notes: event.target.value } : current))
                   }
-                  placeholder="可选：记录这个 token 源的用途、限额或适配说明。"
+                  placeholder={copy.notesPlaceholder}
                 />
               </label>
             </div>
@@ -1518,13 +1586,13 @@ function App() {
             <footer className="provider-sheet__footer">
               <button className="ghost-button" onClick={() => void runDraftProviderTest()}>
                 <RefreshCw size={16} className={testingDraftProvider ? 'spin' : ''} />
-                测试连接
+                {copy.testConnection}
               </button>
-              <button className="ghost-button" onClick={() => setProviderManagerOpen(false)}>
-                取消
+              <button className="ghost-button" onClick={closeProviderManager}>
+                {copy.cancel}
               </button>
               <button className="primary-button" onClick={saveProvider}>
-                保存
+                {copy.save}
               </button>
             </footer>
           </section>
