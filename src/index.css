@@ -1,0 +1,56 @@
+:root {
+  font-family:
+    'Avenir Next',
+    'SF Pro Display',
+    'IBM Plex Sans',
+    'PingFang SC',
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #f4f7fb;
+  background:
+    radial-gradient(circle at top left, rgba(118, 215, 255, 0.16), transparent 28%),
+    radial-gradient(circle at top right, rgba(255, 200, 110, 0.16), transparent 24%),
+    #090b11;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --text-main: #f4f7fb;
+  --text-soft: rgba(244, 247, 251, 0.72);
+  --text-muted: rgba(244, 247, 251, 0.48);
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
