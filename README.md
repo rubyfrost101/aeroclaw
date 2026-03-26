@@ -1,6 +1,6 @@
-# ClawNest
+# NovaClaw
 
-`ClawNest` 是一个独立于 `openclaw` 的 macOS 客户端实验项目，目标是：
+`NovaClaw` 是一个独立于 `openclaw` 的 macOS 客户端实验项目，目标是：
 
 - 参考 `ClawX` 的左侧导航与二级会话结构
 - 参考 `PoorClaw` 的右上角模型切换与自定义 endpoint 配置
@@ -17,12 +17,12 @@
 - 模型源支持一键连通性测试
 - 设置页支持编辑独立网关地址、端口、传输模式和 canvas 路径
 - 首次启动会自动在独立目录下生成本地技能 / 插件模板，并支持刷新发现
-- 内置可启动的本地 `ClawNest` 独立网关，和 `openclaw` 端口 / 目录分离
+- 内置可启动的本地 `NovaClaw` 独立网关，和 `openclaw` 端口 / 目录分离
 - 独立配置目录：
-  - `~/.clawnest/clawnest.json`
-  - `~/.clawnest/skills`
-  - `~/.clawnest/plugins`
-  - `~/Library/Application Support/ClawNest`
+  - `~/.novaclaw/novaclaw.json`
+  - `~/.novaclaw/skills`
+  - `~/.novaclaw/plugins`
+  - `~/Library/Application Support/NovaClaw`
 
 ## 本地网关
 

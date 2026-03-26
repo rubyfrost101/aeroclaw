@@ -146,7 +146,7 @@ function App() {
     return (
       <div className="splash-screen">
         <div className="splash-card">
-          <span className="splash-badge">ClawNest</span>
+          <span className="splash-badge">NovaClaw</span>
           <h1>准备你的独立 Claw 工作台</h1>
           <p>正在加载会话、模型源、技能目录与本地配置。</p>
         </div>
@@ -158,7 +158,7 @@ function App() {
     return (
       <div className="splash-screen">
         <div className="splash-card">
-          <span className="splash-badge">ClawNest</span>
+          <span className="splash-badge">NovaClaw</span>
           <h1>客户端初始化失败</h1>
           <p>{statusMessage ?? '请重新启动应用。'}</p>
         </div>
@@ -463,7 +463,7 @@ function App() {
         transport: settingsDraft.transport,
         endpoint: settingsDraft.endpoint.trim(),
         port,
-        canvasPath: settingsDraft.canvasPath.trim() || '/__clawnest__',
+        canvasPath: settingsDraft.canvasPath.trim() || '/__novaclaw__',
       },
     }
 
@@ -762,7 +762,7 @@ function App() {
               {currentConversation.messages.map((message) => (
                 <article key={message.id} className={`message-bubble ${message.role}`}>
                   <span className="message-role">
-                    {message.role === 'assistant' ? 'ClawNest' : message.role === 'user' ? '你' : '系统'}
+                    {message.role === 'assistant' ? 'NovaClaw' : message.role === 'user' ? '你' : '系统'}
                   </span>
                   <p>{message.content}</p>
                   {message.attachments.length > 0 ? (
@@ -779,7 +779,7 @@ function App() {
               ))}
               {isSending ? (
                 <article className="message-bubble assistant">
-                  <span className="message-role">ClawNest</span>
+                  <span className="message-role">NovaClaw</span>
                   <p>正在调用当前模型源并整理回答，请稍等。</p>
                 </article>
               ) : null}
@@ -810,7 +810,7 @@ function App() {
                 <textarea
                   value={composerText}
                   onChange={(event) => setComposerText(event.target.value)}
-                  placeholder="给 ClawNest 发送任务，或先导入文件让我读材料。"
+                  placeholder="给 NovaClaw 发送任务，或先导入文件让我读材料。"
                   rows={3}
                 />
                 <button className="send-button" onClick={() => void sendMessage()} disabled={isSending}>
@@ -886,7 +886,7 @@ function App() {
             <div>
               <span className="eyebrow">Skill Compatibility</span>
               <h2>技能目录</h2>
-              <p>默认使用独立的 `~/.clawnest/skills`，与 `openclaw` 完全分离，可并行共存。</p>
+              <p>默认使用独立的 `~/.novaclaw/skills`，与 `openclaw` 完全分离，可并行共存。</p>
             </div>
             <button
               className="ghost-button"
@@ -949,7 +949,7 @@ function App() {
                   <h3>双开隔离</h3>
                 </div>
               </div>
-              <p>`openclaw` 和 `ClawNest` 未来可以分别连接不同端口和不同工作目录，避免相互污染。</p>
+              <p>`openclaw` 和 `NovaClaw` 未来可以分别连接不同端口和不同工作目录，避免相互污染。</p>
             </article>
           </div>
         </section>
@@ -1071,7 +1071,7 @@ function App() {
                     canvasPath: event.target.value,
                   }))
                 }
-                placeholder="/__clawnest__"
+                placeholder="/__novaclaw__"
               />
             </label>
           </div>

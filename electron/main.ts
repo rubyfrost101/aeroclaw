@@ -21,11 +21,11 @@ import type {
   StarterAssetsResult,
 } from '../src/shared/schema'
 
-const BRAND_NAME = 'ClawNest'
-const PROJECT_SLUG = 'clawnest'
+const BRAND_NAME = 'NovaClaw'
+const PROJECT_SLUG = 'novaclaw'
 const DEFAULT_GATEWAY_PORT = 18879
 const DEFAULT_GATEWAY_ENDPOINT = 'http://127.0.0.1'
-const DEFAULT_CANVAS_PATH = '/__clawnest__'
+const DEFAULT_CANVAS_PATH = '/__novaclaw__'
 const TEXT_PREVIEW_LIMIT = 14000
 
 const __filename = fileURLToPath(import.meta.url)
@@ -317,7 +317,7 @@ async function ensureStarterAssets(paths: AppPaths): Promise<StarterAssetsResult
       `# Starter Analysis Skill
 
 ## Purpose
-Help ClawNest summarize imported files, identify action items, and prepare follow-up prompts.
+Help NovaClaw summarize imported files, identify action items, and prepare follow-up prompts.
 
 ## Workflow
 1. Read the imported files first.
@@ -326,7 +326,7 @@ Help ClawNest summarize imported files, identify action items, and prepare follo
 4. When the user asks for a deeper dive, keep references grounded in the imported material.
 
 ## Notes
-- This starter skill lives under ~/.clawnest/skills and is separated from any openclaw skill directory.
+- This starter skill lives under ~/.novaclaw/skills and is separated from any openclaw skill directory.
 - Replace this file with your own workflow instructions at any time.
 `,
       'utf8',
@@ -343,7 +343,7 @@ Help ClawNest summarize imported files, identify action items, and prepare follo
       JSON.stringify(
         {
           name: 'Starter Bridge',
-          description: 'A local ClawNest plugin placeholder for future gateway or workflow integrations.',
+          description: 'A local NovaClaw plugin placeholder for future gateway or workflow integrations.',
           version: '0.1.0',
           entry: './README.md',
         },
@@ -356,14 +356,14 @@ Help ClawNest summarize imported files, identify action items, and prepare follo
       starterPluginReadme,
       `# Starter Bridge
 
-This folder is a starter local plugin for ClawNest.
+This folder is a starter local plugin for NovaClaw.
 
 Use it to describe:
 - what the plugin should do
 - which local service or gateway it talks to
 - what inputs and outputs it expects
 
-ClawNest discovers this folder from ~/.clawnest/plugins and keeps it separate from openclaw directories.
+NovaClaw discovers this folder from ~/.novaclaw/plugins and keeps it separate from openclaw directories.
 `,
       'utf8',
     )
@@ -400,7 +400,7 @@ function createDefaultState(paths: AppPaths, skills: SkillItem[], plugins: Plugi
     conversations: [
       {
         id: starterConversationId,
-        title: '欢迎使用 ClawNest',
+        title: '欢迎使用 NovaClaw',
         summary: '独立目录、独立网关、安装后配 token 即可用',
         createdAt: now,
         updatedAt: now,
@@ -409,7 +409,7 @@ function createDefaultState(paths: AppPaths, skills: SkillItem[], plugins: Plugi
             id: crypto.randomUUID(),
             role: 'assistant',
             content:
-              '这是你的独立 `ClawNest` 工作台。它和 `openclaw` 使用不同的配置目录、插件目录和技能目录，所以可以同时安装、同时运行。\n\n' +
+              '这是你的独立 `NovaClaw` 工作台。它和 `openclaw` 使用不同的配置目录、插件目录和技能目录，所以可以同时安装、同时运行。\n\n' +
               '你现在可以先在右上角配置一个自定义 token 源，然后直接聊天；也可以先导入文件，让我根据文档内容再帮你分析。',
             createdAt: now,
             attachments: [],
@@ -588,7 +588,7 @@ async function runChatCompletion(request: ChatRequest): Promise<ChatResult> {
         {
           role: 'system',
           content:
-            'You are ClawNest, a standalone macOS AI workspace compatible with OpenAI-style APIs. ' +
+            'You are NovaClaw, a standalone macOS AI workspace compatible with OpenAI-style APIs. ' +
             'Answer in Chinese unless the user clearly asks otherwise. Summarize attached files faithfully and call out uncertainty.',
         },
         ...request.history.map((message) => ({
@@ -926,18 +926,18 @@ function createWindow() {
 }
 
 function registerIpcHandlers(paths: AppPaths) {
-  ipcMain.handle('clawnest:bootstrap', async (): Promise<BootstrapPayload> => ({
+  ipcMain.handle('novaclaw:bootstrap', async (): Promise<BootstrapPayload> => ({
     now: new Date().toISOString(),
     state: await loadState(paths),
   }))
 
-  ipcMain.handle('clawnest:save-state', async (_event, state: AppState) => {
+  ipcMain.handle('novaclaw:save-state', async (_event, state: AppState) => {
     await persistState(paths, state)
   })
 
-  ipcMain.handle('clawnest:pick-files', async (): Promise<ImportedAttachment[]> => {
+  ipcMain.handle('novaclaw:pick-files', async (): Promise<ImportedAttachment[]> => {
     const result = await dialog.showOpenDialog({
-      title: '导入文件给 ClawNest 分析',
+      title: '导入文件给 NovaClaw 分析',
       properties: ['multiSelections', 'openFile'],
     })
 
@@ -948,28 +948,28 @@ function registerIpcHandlers(paths: AppPaths) {
     return Promise.all(result.filePaths.map((filePath) => importAttachment(filePath)))
   })
 
-  ipcMain.handle('clawnest:send-chat', async (_event, request: ChatRequest): Promise<ChatResult> =>
+  ipcMain.handle('novaclaw:send-chat', async (_event, request: ChatRequest): Promise<ChatResult> =>
     runChatCompletion(request),
   )
 
-  ipcMain.handle('clawnest:test-provider', async (_event, provider: ModelProvider) =>
+  ipcMain.handle('novaclaw:test-provider', async (_event, provider: ModelProvider) =>
     testProviderConnection(provider),
   )
 
-  ipcMain.handle('clawnest:create-starter-assets', async (): Promise<StarterAssetsResult> =>
+  ipcMain.handle('novaclaw:create-starter-assets', async (): Promise<StarterAssetsResult> =>
     ensureStarterAssets(paths),
   )
 
-  ipcMain.handle('clawnest:get-gateway-status', async (): Promise<GatewayServiceStatus> => {
+  ipcMain.handle('novaclaw:get-gateway-status', async (): Promise<GatewayServiceStatus> => {
     const state = cachedState ?? (await loadState(paths))
     return createGatewayStatus(state)
   })
 
-  ipcMain.handle('clawnest:start-gateway', async (): Promise<GatewayServiceStatus> => startGatewayServer(paths))
+  ipcMain.handle('novaclaw:start-gateway', async (): Promise<GatewayServiceStatus> => startGatewayServer(paths))
 
-  ipcMain.handle('clawnest:stop-gateway', async (): Promise<GatewayServiceStatus> => stopGatewayServer(paths))
+  ipcMain.handle('novaclaw:stop-gateway', async (): Promise<GatewayServiceStatus> => stopGatewayServer(paths))
 
-  ipcMain.handle('clawnest:reveal-in-finder', async (_event, targetPath: string) => {
+  ipcMain.handle('novaclaw:reveal-in-finder', async (_event, targetPath: string) => {
     await shell.openPath(targetPath)
   })
 }
