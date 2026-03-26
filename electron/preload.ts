@@ -5,6 +5,7 @@ import type {
   ChatRequest,
   ChatResult,
   DesktopApi,
+  GatewayServiceStatus,
   ImportedAttachment,
   ModelProvider,
   ProviderTestResult,
@@ -21,6 +22,9 @@ const api: DesktopApi = {
     ipcRenderer.invoke('clawnest:test-provider', provider) as Promise<ProviderTestResult>,
   createStarterAssets: () =>
     ipcRenderer.invoke('clawnest:create-starter-assets') as Promise<StarterAssetsResult>,
+  getGatewayStatus: () => ipcRenderer.invoke('clawnest:get-gateway-status') as Promise<GatewayServiceStatus>,
+  startGateway: () => ipcRenderer.invoke('clawnest:start-gateway') as Promise<GatewayServiceStatus>,
+  stopGateway: () => ipcRenderer.invoke('clawnest:stop-gateway') as Promise<GatewayServiceStatus>,
 }
 
 contextBridge.exposeInMainWorld('clawNest', api)

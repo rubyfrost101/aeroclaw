@@ -113,6 +113,15 @@ export interface StarterAssetsResult {
   skipped: string[]
 }
 
+export interface GatewayServiceStatus {
+  running: boolean
+  url: string
+  host: string
+  port: number
+  startedAt?: string
+  lastError?: string
+}
+
 export interface DesktopApi {
   bootstrap: () => Promise<BootstrapPayload>
   pickFiles: () => Promise<ImportedAttachment[]>
@@ -121,4 +130,7 @@ export interface DesktopApi {
   sendChat: (request: ChatRequest) => Promise<ChatResult>
   testProvider: (provider: ModelProvider) => Promise<ProviderTestResult>
   createStarterAssets: () => Promise<StarterAssetsResult>
+  getGatewayStatus: () => Promise<GatewayServiceStatus>
+  startGateway: () => Promise<GatewayServiceStatus>
+  stopGateway: () => Promise<GatewayServiceStatus>
 }

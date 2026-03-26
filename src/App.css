@@ -484,6 +484,10 @@
   gap: 16px;
 }
 
+.compact-grid {
+  margin-top: 18px;
+}
+
 .settings-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -525,6 +529,10 @@
 
 .setting-card {
   min-height: 140px;
+}
+
+.setting-card.compact {
+  min-height: 0;
 }
 
 .inline-setting-action {

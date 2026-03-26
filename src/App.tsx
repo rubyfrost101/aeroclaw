@@ -7,11 +7,13 @@ import {
   FolderCog,
   FolderKanban,
   Paperclip,
+  Play,
   Plus,
   RefreshCw,
   Save,
   SendHorizonal,
   Settings,
+  Square,
   Sparkles,
   PlugZap,
   Wrench,
@@ -21,6 +23,7 @@ import type {
   AppState,
   ConversationMessage,
   ConversationThread,
+  GatewayServiceStatus,
   GatewaySettings,
   ImportedAttachment,
   MainSection,
@@ -46,6 +49,8 @@ function App() {
   const [providerChecks, setProviderChecks] = useState<Record<string, ProviderTestResult>>({})
   const [testingProviderId, setTestingProviderId] = useState<string | null>(null)
   const [testingDraftProvider, setTestingDraftProvider] = useState(false)
+  const [gatewayStatus, setGatewayStatus] = useState<GatewayServiceStatus | null>(null)
+  const [isUpdatingGatewayRuntime, setIsUpdatingGatewayRuntime] = useState(false)
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft>({
     transport: 'openai-compatible',
     endpoint: '',
@@ -63,8 +68,10 @@ function App() {
   useEffect(() => {
     window.clawNest
       .bootstrap()
-      .then((payload) => {
+      .then(async (payload) => {
         setAppState(payload.state)
+        const status = await window.clawNest.getGatewayStatus()
+        setGatewayStatus(status)
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : '初始化失败'
@@ -118,6 +125,21 @@ function App() {
       port: String(appState.gateway.port),
       canvasPath: appState.gateway.canvasPath,
     })
+  }, [appState])
+
+  useEffect(() => {
+    if (!appState) {
+      return
+    }
+
+    void window.clawNest
+      .getGatewayStatus()
+      .then((status) => {
+        setGatewayStatus(status)
+      })
+      .catch(() => {
+        setGatewayStatus(null)
+      })
   }, [appState])
 
   if (isBootstrapping) {
@@ -332,6 +354,46 @@ function App() {
     }
   }
 
+  async function refreshGatewayStatus() {
+    try {
+      const status = await window.clawNest.getGatewayStatus()
+      setGatewayStatus(status)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : '读取网关状态失败'
+      setStatusMessage(message)
+    }
+  }
+
+  async function startGateway() {
+    setIsUpdatingGatewayRuntime(true)
+    try {
+      const status = await window.clawNest.startGateway()
+      setGatewayStatus(status)
+      setStatusMessage(`网关已启动：${status.url}`)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : '启动网关失败'
+      setStatusMessage(message)
+      await refreshGatewayStatus()
+    } finally {
+      setIsUpdatingGatewayRuntime(false)
+    }
+  }
+
+  async function stopGateway() {
+    setIsUpdatingGatewayRuntime(true)
+    try {
+      const status = await window.clawNest.stopGateway()
+      setGatewayStatus(status)
+      setStatusMessage('网关已停止。')
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : '停止网关失败'
+      setStatusMessage(message)
+      await refreshGatewayStatus()
+    } finally {
+      setIsUpdatingGatewayRuntime(false)
+    }
+  }
+
   async function createStarterAssets() {
     setIsCreatingAssets(true)
     try {
@@ -394,22 +456,20 @@ function App() {
       return
     }
 
-    setAppState((current) => {
-      if (!current) {
-        return current
-      }
+    const nextState: AppState = {
+      ...currentAppState,
+      gateway: {
+        ...currentAppState.gateway,
+        transport: settingsDraft.transport,
+        endpoint: settingsDraft.endpoint.trim(),
+        port,
+        canvasPath: settingsDraft.canvasPath.trim() || '/__clawnest__',
+      },
+    }
 
-      return {
-        ...current,
-        gateway: {
-          ...current.gateway,
-          transport: settingsDraft.transport,
-          endpoint: settingsDraft.endpoint.trim(),
-          port,
-          canvasPath: settingsDraft.canvasPath.trim() || '/__clawnest__',
-        },
-      }
-    })
+    setAppState(nextState)
+    void window.clawNest.saveState(nextState)
+    void refreshGatewayStatus()
 
     setStatusMessage('独立网关设置已更新。')
   }
@@ -903,6 +963,49 @@ function App() {
             <span className="eyebrow">Workspace Settings</span>
             <h2>设置</h2>
             <p>这里保留独立品牌名、独立目录、独立网关地址，确保它和 `openclaw` 能同时安装使用。</p>
+          </div>
+        </div>
+        <div className="settings-form-card">
+          <div className="feature-card__header">
+            <div>
+              <span className="provider-badge">Gateway Runtime</span>
+              <h3>本地独立网关</h3>
+            </div>
+            <div className="provider-actions">
+              <button className="ghost-button" onClick={() => void refreshGatewayStatus()}>
+                <RefreshCw size={16} className={isUpdatingGatewayRuntime ? 'spin' : ''} />
+                刷新状态
+              </button>
+              {gatewayStatus?.running ? (
+                <button className="danger-button" onClick={() => void stopGateway()}>
+                  <Square size={16} />
+                  停止网关
+                </button>
+              ) : (
+                <button className="primary-button" onClick={() => void startGateway()}>
+                  <Play size={16} />
+                  启动网关
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="settings-grid compact-grid">
+            <article className="setting-card compact">
+              <h3>运行状态</h3>
+              <p>{gatewayStatus?.running ? '运行中' : '未启动'}</p>
+            </article>
+            <article className="setting-card compact">
+              <h3>访问地址</h3>
+              <p>{gatewayStatus?.url ?? `http://127.0.0.1:${currentAppState.gateway.port}`}</p>
+            </article>
+            <article className="setting-card compact">
+              <h3>启动时间</h3>
+              <p>{gatewayStatus?.startedAt ?? '尚未启动'}</p>
+            </article>
+            <article className="setting-card compact">
+              <h3>最近错误</h3>
+              <p>{gatewayStatus?.lastError ?? '无'}</p>
+            </article>
           </div>
         </div>
         <div className="settings-form-card">

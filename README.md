@@ -17,11 +17,24 @@
 - 模型源支持一键连通性测试
 - 设置页支持编辑独立网关地址、端口、传输模式和 canvas 路径
 - 首次启动会自动在独立目录下生成本地技能 / 插件模板，并支持刷新发现
+- 内置可启动的本地 `ClawNest` 独立网关，和 `openclaw` 端口 / 目录分离
 - 独立配置目录：
   - `~/.clawnest/clawnest.json`
   - `~/.clawnest/skills`
   - `~/.clawnest/plugins`
   - `~/Library/Application Support/ClawNest`
+
+## 本地网关
+
+在设置页可以直接启动 / 停止本地独立网关。当前内置这些只读接口：
+
+- `GET /health`
+- `GET /skills`
+- `GET /plugins`
+- `GET /providers`
+- `GET /conversations`
+- `GET /config`
+- `POST /reload`
 
 ## 开发
 

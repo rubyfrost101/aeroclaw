@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { promises as fs } from 'node:fs'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as mammoth from 'mammoth'
@@ -10,6 +11,7 @@ import type {
   BootstrapPayload,
   ChatRequest,
   ChatResult,
+  GatewayServiceStatus,
   GatewaySettings,
   ImportedAttachment,
   ModelProvider,
@@ -28,6 +30,10 @@ const TEXT_PREVIEW_LIMIT = 14000
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+let gatewayServer: Server | null = null
+let gatewayStartedAt: string | undefined
+let gatewayLastError: string | undefined
+let cachedState: AppState | null = null
 
 interface AppPaths extends GatewaySettings {
   stateFile: string
@@ -480,7 +486,7 @@ async function loadState(paths: AppPaths) {
     mergePlugins(builtinPlugins, localPlugins),
   )
 
-  return normalizeState({
+  const normalized = normalizeState({
     ...defaultState,
     ...storedState,
     providers: storedConfig?.providers ?? storedState?.providers ?? defaultState.providers,
@@ -494,10 +500,14 @@ async function loadState(paths: AppPaths) {
     skills: mergeSkills(defaultState.skills, localSkills),
     plugins: mergePlugins(defaultState.plugins, [...(storedState?.plugins ?? []), ...localPlugins]),
   })
+
+  cachedState = normalized
+  return normalized
 }
 
 async function persistState(paths: AppPaths, state: AppState) {
   const normalized = normalizeState(state)
+  cachedState = normalized
   await Promise.all([
     writeJsonFile(paths.stateFile, normalized),
     writeJsonFile(paths.configFile, {
@@ -704,6 +714,194 @@ async function testProviderConnection(provider: ModelProvider): Promise<Provider
   }
 }
 
+function parseGatewayHost(endpoint: string) {
+  try {
+    const url = new URL(endpoint.includes('://') ? endpoint : `http://${endpoint}`)
+    return url.hostname || '127.0.0.1'
+  } catch {
+    return '127.0.0.1'
+  }
+}
+
+function createGatewayStatus(state: AppState): GatewayServiceStatus {
+  const host = parseGatewayHost(state.gateway.endpoint)
+
+  return {
+    running: gatewayServer !== null,
+    url: `http://${host}:${state.gateway.port}`,
+    host,
+    port: state.gateway.port,
+    startedAt: gatewayStartedAt,
+    lastError: gatewayLastError,
+  }
+}
+
+function sendJson(res: ServerResponse, statusCode: number, payload: unknown) {
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  })
+  res.end(JSON.stringify(payload, null, 2))
+}
+
+function safeProviders(state: AppState) {
+  return state.providers.map((provider) => ({
+    ...provider,
+    apiKey: provider.apiKey ? '***' : '',
+  }))
+}
+
+async function handleGatewayRequest(req: IncomingMessage, res: ServerResponse, paths: AppPaths) {
+  if (req.method === 'OPTIONS') {
+    sendJson(res, 204, {})
+    return
+  }
+
+  const state = cachedState ?? (await loadState(paths))
+  const requestUrl = new URL(req.url ?? '/', 'http://127.0.0.1')
+
+  if (requestUrl.pathname === '/health') {
+    sendJson(res, 200, {
+      ok: true,
+      brandName: BRAND_NAME,
+      projectSlug: PROJECT_SLUG,
+      gateway: state.gateway,
+      status: createGatewayStatus(state),
+    })
+    return
+  }
+
+  if (requestUrl.pathname === '/skills') {
+    sendJson(res, 200, {
+      items: state.skills,
+      total: state.skills.length,
+    })
+    return
+  }
+
+  if (requestUrl.pathname === '/plugins') {
+    sendJson(res, 200, {
+      items: state.plugins,
+      total: state.plugins.length,
+    })
+    return
+  }
+
+  if (requestUrl.pathname === '/providers') {
+    sendJson(res, 200, {
+      items: safeProviders(state),
+      activeProviderId: state.activeProviderId,
+    })
+    return
+  }
+
+  if (requestUrl.pathname === '/conversations') {
+    sendJson(res, 200, {
+      items: state.conversations.map((conversation) => ({
+        id: conversation.id,
+        title: conversation.title,
+        summary: conversation.summary,
+        updatedAt: conversation.updatedAt,
+        messageCount: conversation.messages.length,
+      })),
+      activeConversationId: state.activeConversationId,
+    })
+    return
+  }
+
+  if (requestUrl.pathname === '/config') {
+    sendJson(res, 200, {
+      brandName: state.brandName,
+      projectSlug: state.projectSlug,
+      gateway: state.gateway,
+      directories: {
+        configDir: state.gateway.configDir,
+        supportDir: state.gateway.supportDir,
+        workspaceDir: state.gateway.workspaceDir,
+        skillsDir: state.gateway.skillsDir,
+        pluginsDir: state.gateway.pluginsDir,
+      },
+    })
+    return
+  }
+
+  if (requestUrl.pathname === '/reload' && req.method === 'POST') {
+    await ensureStarterAssets(paths)
+    const nextState = await loadState(paths)
+    sendJson(res, 200, {
+      ok: true,
+      status: createGatewayStatus(nextState),
+      skills: nextState.skills.length,
+      plugins: nextState.plugins.length,
+    })
+    return
+  }
+
+  sendJson(res, 404, {
+    ok: false,
+    message: 'Gateway endpoint not found.',
+    availableEndpoints: ['/health', '/skills', '/plugins', '/providers', '/conversations', '/config', '/reload'],
+  })
+}
+
+async function startGatewayServer(paths: AppPaths): Promise<GatewayServiceStatus> {
+  const state = cachedState ?? (await loadState(paths))
+
+  if (gatewayServer) {
+    return createGatewayStatus(state)
+  }
+
+  const host = parseGatewayHost(state.gateway.endpoint)
+
+  await new Promise<void>((resolve, reject) => {
+    const server = createServer((req, res) => {
+      void handleGatewayRequest(req, res, paths).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Gateway request failed'
+        sendJson(res, 500, { ok: false, message })
+      })
+    })
+
+    server.once('error', (error: unknown) => {
+      const message = error instanceof Error ? error.message : 'Gateway start failed'
+      gatewayLastError = message
+      reject(new Error(message))
+    })
+
+    server.listen(state.gateway.port, host, () => {
+      gatewayServer = server
+      gatewayStartedAt = new Date().toISOString()
+      gatewayLastError = undefined
+      resolve()
+    })
+  })
+
+  return createGatewayStatus(state)
+}
+
+async function stopGatewayServer(paths: AppPaths): Promise<GatewayServiceStatus> {
+  const state = cachedState ?? (await loadState(paths))
+
+  if (!gatewayServer) {
+    return createGatewayStatus(state)
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    gatewayServer?.close((error) => {
+      if (error) {
+        reject(error)
+        return
+      }
+
+      resolve()
+    })
+  })
+
+  gatewayServer = null
+  gatewayStartedAt = undefined
+  return createGatewayStatus(state)
+}
+
 function createWindow() {
   const window = new BrowserWindow({
     width: 1560,
@@ -762,6 +960,15 @@ function registerIpcHandlers(paths: AppPaths) {
     ensureStarterAssets(paths),
   )
 
+  ipcMain.handle('clawnest:get-gateway-status', async (): Promise<GatewayServiceStatus> => {
+    const state = cachedState ?? (await loadState(paths))
+    return createGatewayStatus(state)
+  })
+
+  ipcMain.handle('clawnest:start-gateway', async (): Promise<GatewayServiceStatus> => startGatewayServer(paths))
+
+  ipcMain.handle('clawnest:stop-gateway', async (): Promise<GatewayServiceStatus> => stopGatewayServer(paths))
+
   ipcMain.handle('clawnest:reveal-in-finder', async (_event, targetPath: string) => {
     await shell.openPath(targetPath)
   })
@@ -784,6 +991,9 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    if (gatewayServer) {
+      void stopGatewayServer(getAppPaths())
+    }
     app.quit()
   }
 })
