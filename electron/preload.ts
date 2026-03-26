@@ -13,18 +13,18 @@ import type {
 } from '../src/shared/schema'
 
 const api: DesktopApi = {
-  bootstrap: () => ipcRenderer.invoke('novaclaw:bootstrap') as Promise<BootstrapPayload>,
-  pickFiles: () => ipcRenderer.invoke('novaclaw:pick-files') as Promise<ImportedAttachment[]>,
-  revealInFinder: (targetPath: string) => ipcRenderer.invoke('novaclaw:reveal-in-finder', targetPath),
-  saveState: (state: AppState) => ipcRenderer.invoke('novaclaw:save-state', state),
-  sendChat: (request: ChatRequest) => ipcRenderer.invoke('novaclaw:send-chat', request) as Promise<ChatResult>,
+  bootstrap: () => ipcRenderer.invoke('aeroclaw:bootstrap') as Promise<BootstrapPayload>,
+  pickFiles: () => ipcRenderer.invoke('aeroclaw:pick-files') as Promise<ImportedAttachment[]>,
+  revealInFinder: (targetPath: string) => ipcRenderer.invoke('aeroclaw:reveal-in-finder', targetPath),
+  saveState: (state: AppState) => ipcRenderer.invoke('aeroclaw:save-state', state),
+  sendChat: (request: ChatRequest) => ipcRenderer.invoke('aeroclaw:send-chat', request) as Promise<ChatResult>,
   testProvider: (provider: ModelProvider) =>
-    ipcRenderer.invoke('novaclaw:test-provider', provider) as Promise<ProviderTestResult>,
+    ipcRenderer.invoke('aeroclaw:test-provider', provider) as Promise<ProviderTestResult>,
   createStarterAssets: () =>
-    ipcRenderer.invoke('novaclaw:create-starter-assets') as Promise<StarterAssetsResult>,
-  getGatewayStatus: () => ipcRenderer.invoke('novaclaw:get-gateway-status') as Promise<GatewayServiceStatus>,
-  startGateway: () => ipcRenderer.invoke('novaclaw:start-gateway') as Promise<GatewayServiceStatus>,
-  stopGateway: () => ipcRenderer.invoke('novaclaw:stop-gateway') as Promise<GatewayServiceStatus>,
+    ipcRenderer.invoke('aeroclaw:create-starter-assets') as Promise<StarterAssetsResult>,
+  getGatewayStatus: () => ipcRenderer.invoke('aeroclaw:get-gateway-status') as Promise<GatewayServiceStatus>,
+  startGateway: () => ipcRenderer.invoke('aeroclaw:start-gateway') as Promise<GatewayServiceStatus>,
+  stopGateway: () => ipcRenderer.invoke('aeroclaw:stop-gateway') as Promise<GatewayServiceStatus>,
 }
 
 contextBridge.exposeInMainWorld('clawNest', api)

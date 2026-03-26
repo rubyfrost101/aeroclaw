@@ -1,8 +1,8 @@
 {
-  "name": "novaclaw",
+  "name": "aeroclaw",
   "private": true,
   "version": "0.1.0",
-  "description": "Standalone macOS NovaClaw client with separate OpenClaw-compatible directories and custom token sources.",
+  "description": "Standalone macOS AeroClaw client with separate OpenClaw-compatible directories and custom token sources.",
   "author": "rubyfrost101",
   "type": "module",
   "main": "dist-electron/main.js",
@@ -40,8 +40,8 @@
     "vite-plugin-electron-renderer": "^0.14.6"
   },
   "build": {
-    "appId": "ai.rubyfrost.novaclaw",
-    "productName": "NovaClaw",
+    "appId": "ai.rubyfrost.aeroclaw",
+    "productName": "AeroClaw",
     "asar": true,
     "files": [
       "dist/**",
