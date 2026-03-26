@@ -16,8 +16,12 @@
 - 右上角模型切换与新增 / 编辑自定义 token 源
 - 模型源支持一键连通性测试
 - 设置页支持编辑独立网关地址、端口、传输模式和 canvas 路径
+- `openclaw-compatible` 模式支持直接连接 OpenClaw Gateway WebSocket
+- 每个二级对话都可绑定独立 gateway `sessionKey`
+- 可同步 OpenClaw Gateway 的技能、工具、模型目录和会话快照
 - 首次启动会自动在独立目录下生成本地技能 / 插件模板，并支持刷新发现
 - 内置可启动的本地 `AeroClaw` 独立网关，和 `openclaw` 端口 / 目录分离
+- 已补齐 `AeroClaw` 大小写显示名、`.icns` 应用图标、Hardened Runtime 与 notarization 钩子
 - 独立配置目录：
   - `~/.aeroclaw/aeroclaw.json`
   - `~/.aeroclaw/skills`
@@ -46,11 +50,19 @@ npm run dev
 ## 打包
 
 ```bash
+npm run build:icons
 npm run dist
 ```
 
+如果你要做正式 macOS 公证，额外提供以下任一组环境变量即可：
+
+- `APPLE_NOTARY_PROFILE`
+- `APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`
+- `APPLE_API_KEY` + `APPLE_API_KEY_ID` + `APPLE_API_ISSUER`
+
+如果缺少这些凭据，构建会继续进行，但会跳过 notarization。
+
 ## 后续方向
 
-- 接入真正的 OpenClaw-compatible gateway 协议
 - 扩展插件执行机制与技能运行链路
 - 完善图片 / OCR / 浏览器自动化分析链路

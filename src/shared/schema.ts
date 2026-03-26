@@ -27,6 +27,7 @@ export interface ConversationThread {
   summary: string
   createdAt: string
   updatedAt: string
+  gatewaySessionKey?: string
   messages: ConversationMessage[]
 }
 
@@ -64,6 +65,9 @@ export interface GatewaySettings {
   endpoint: string
   port: number
   canvasPath: string
+  authToken: string
+  password: string
+  sessionKey: string
   configDir: string
   configFile: string
   supportDir: string
@@ -95,6 +99,7 @@ export interface ChatRequest {
   history: ConversationMessage[]
   prompt: string
   attachments: ImportedAttachment[]
+  sessionKey?: string
 }
 
 export interface ChatResult {
@@ -122,6 +127,49 @@ export interface GatewayServiceStatus {
   lastError?: string
 }
 
+export interface GatewayProbeResult {
+  ok: boolean
+  checkedAt: string
+  message: string
+  gatewayUrl?: string
+  authMode?: 'token' | 'password' | 'device-token' | 'none'
+}
+
+export interface OpenClawGatewaySession {
+  key: string
+  title: string
+  updatedAt?: string
+  model?: string
+}
+
+export interface OpenClawGatewaySkill {
+  id: string
+  name: string
+  description: string
+  eligible: boolean
+  source: 'bundled' | 'workspace' | 'managed' | 'unknown'
+}
+
+export interface OpenClawGatewayTool {
+  id: string
+  label: string
+  description: string
+  group: string
+  source: 'core' | 'plugin'
+  pluginId?: string
+}
+
+export interface OpenClawGatewaySnapshot {
+  checkedAt: string
+  gatewayUrl: string
+  authMode: 'token' | 'password' | 'device-token' | 'none'
+  configPath?: string
+  models: string[]
+  sessions: OpenClawGatewaySession[]
+  skills: OpenClawGatewaySkill[]
+  tools: OpenClawGatewayTool[]
+}
+
 export interface DesktopApi {
   bootstrap: () => Promise<BootstrapPayload>
   pickFiles: () => Promise<ImportedAttachment[]>
@@ -129,6 +177,8 @@ export interface DesktopApi {
   saveState: (state: AppState) => Promise<void>
   sendChat: (request: ChatRequest) => Promise<ChatResult>
   testProvider: (provider: ModelProvider) => Promise<ProviderTestResult>
+  probeGateway: (settings: GatewaySettings) => Promise<GatewayProbeResult>
+  syncGateway: (settings: GatewaySettings) => Promise<OpenClawGatewaySnapshot>
   createStarterAssets: () => Promise<StarterAssetsResult>
   getGatewayStatus: () => Promise<GatewayServiceStatus>
   startGateway: () => Promise<GatewayServiceStatus>

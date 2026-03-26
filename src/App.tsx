@@ -23,11 +23,13 @@ import type {
   AppState,
   ConversationMessage,
   ConversationThread,
+  GatewayProbeResult,
   GatewayServiceStatus,
   GatewaySettings,
   ImportedAttachment,
   MainSection,
   ModelProvider,
+  OpenClawGatewaySnapshot,
   PluginItem,
   ProviderTestResult,
 } from './shared/schema'
@@ -37,6 +39,9 @@ type SettingsDraft = {
   endpoint: string
   port: string
   canvasPath: string
+  authToken: string
+  password: string
+  sessionKey: string
 }
 
 function App() {
@@ -50,12 +55,19 @@ function App() {
   const [testingProviderId, setTestingProviderId] = useState<string | null>(null)
   const [testingDraftProvider, setTestingDraftProvider] = useState(false)
   const [gatewayStatus, setGatewayStatus] = useState<GatewayServiceStatus | null>(null)
+  const [gatewayProbe, setGatewayProbe] = useState<GatewayProbeResult | null>(null)
+  const [gatewaySnapshot, setGatewaySnapshot] = useState<OpenClawGatewaySnapshot | null>(null)
   const [isUpdatingGatewayRuntime, setIsUpdatingGatewayRuntime] = useState(false)
+  const [isProbingGateway, setIsProbingGateway] = useState(false)
+  const [isSyncingGateway, setIsSyncingGateway] = useState(false)
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft>({
     transport: 'openai-compatible',
     endpoint: '',
     port: '',
     canvasPath: '',
+    authToken: '',
+    password: '',
+    sessionKey: 'main',
   })
   const [isRefreshingState, setIsRefreshingState] = useState(false)
   const [isCreatingAssets, setIsCreatingAssets] = useState(false)
@@ -124,6 +136,9 @@ function App() {
       endpoint: appState.gateway.endpoint,
       port: String(appState.gateway.port),
       canvasPath: appState.gateway.canvasPath,
+      authToken: appState.gateway.authToken,
+      password: appState.gateway.password,
+      sessionKey: appState.gateway.sessionKey,
     })
   }, [appState])
 
@@ -141,6 +156,31 @@ function App() {
         setGatewayStatus(null)
       })
   }, [appState])
+
+  useEffect(() => {
+    if (!appState) {
+      return
+    }
+
+    if (appState.gateway.transport !== 'openclaw-compatible') {
+      setGatewaySnapshot(null)
+      setGatewayProbe(null)
+      return
+    }
+
+    if (!appState.gateway.endpoint.trim()) {
+      return
+    }
+
+    void syncGatewayCatalog(appState.gateway, true)
+  }, [
+    appState,
+    appState?.gateway.transport,
+    appState?.gateway.endpoint,
+    appState?.gateway.port,
+    appState?.gateway.authToken,
+    appState?.gateway.password,
+  ])
 
   if (isBootstrapping) {
     return (
@@ -169,6 +209,7 @@ function App() {
   const currentAppState = appState
   const currentConversation = activeConversation
   const currentProvider = activeProvider
+  const isOpenClawTransport = currentAppState.gateway.transport === 'openclaw-compatible'
 
   const navItems: Array<{
     id: MainSection
@@ -182,6 +223,68 @@ function App() {
     { id: 'tasks', label: '定时任务', icon: Clock3 },
     { id: 'settings', label: '设置', icon: Settings },
   ]
+
+  function buildConversationGatewaySessionKey() {
+    return `aeroclaw:${crypto.randomUUID()}`
+  }
+
+  function resolveGatewaySettingsFromDraft() {
+    const port = Number.parseInt(settingsDraft.port, 10)
+    if (!settingsDraft.endpoint.trim()) {
+      setStatusMessage('请填写网关地址。')
+      return null
+    }
+
+    if (!Number.isFinite(port) || port <= 0) {
+      setStatusMessage('请填写有效端口。')
+      return null
+    }
+
+    return {
+      ...currentAppState.gateway,
+      transport: settingsDraft.transport,
+      endpoint: settingsDraft.endpoint.trim(),
+      port,
+      canvasPath: settingsDraft.canvasPath.trim() || '/__aeroclaw__',
+      authToken: settingsDraft.authToken.trim(),
+      password: settingsDraft.password,
+      sessionKey: settingsDraft.sessionKey.trim() || 'main',
+    } satisfies GatewaySettings
+  }
+
+  async function probeGateway(settings: GatewaySettings) {
+    setIsProbingGateway(true)
+    try {
+      const result = await window.clawNest.probeGateway(settings)
+      setGatewayProbe(result)
+      setStatusMessage(result.message)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : '网关探测失败'
+      setStatusMessage(message)
+    } finally {
+      setIsProbingGateway(false)
+    }
+  }
+
+  async function syncGatewayCatalog(settings: GatewaySettings, silent = false) {
+    setIsSyncingGateway(true)
+    try {
+      const snapshot = await window.clawNest.syncGateway(settings)
+      setGatewaySnapshot(snapshot)
+      if (!silent) {
+        setStatusMessage(
+          `已同步 OpenClaw 能力：${snapshot.skills.length} 个技能、${snapshot.tools.length} 个工具、${snapshot.sessions.length} 个会话。`,
+        )
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : '同步 OpenClaw 能力失败'
+      if (!silent) {
+        setStatusMessage(message)
+      }
+    } finally {
+      setIsSyncingGateway(false)
+    }
+  }
 
   function setSection(section: MainSection) {
     setAppState((current) => {
@@ -204,6 +307,7 @@ function App() {
       summary: '准备开始新的任务',
       createdAt: now,
       updatedAt: now,
+      gatewaySessionKey: isOpenClawTransport ? buildConversationGatewaySessionKey() : undefined,
       messages: [
         {
           id: crypto.randomUUID(),
@@ -445,31 +549,23 @@ function App() {
   }
 
   function saveGatewaySettings() {
-    const port = Number.parseInt(settingsDraft.port, 10)
-    if (!settingsDraft.endpoint.trim()) {
-      setStatusMessage('请填写网关地址。')
-      return
-    }
-
-    if (!Number.isFinite(port) || port <= 0) {
-      setStatusMessage('请填写有效端口。')
+    const nextGatewaySettings = resolveGatewaySettingsFromDraft()
+    if (!nextGatewaySettings) {
       return
     }
 
     const nextState: AppState = {
       ...currentAppState,
-      gateway: {
-        ...currentAppState.gateway,
-        transport: settingsDraft.transport,
-        endpoint: settingsDraft.endpoint.trim(),
-        port,
-        canvasPath: settingsDraft.canvasPath.trim() || '/__aeroclaw__',
-      },
+      gateway: nextGatewaySettings,
     }
 
     setAppState(nextState)
     void window.clawNest.saveState(nextState)
     void refreshGatewayStatus()
+    if (nextGatewaySettings.transport === 'openclaw-compatible') {
+      void probeGateway(nextGatewaySettings)
+      void syncGatewayCatalog(nextGatewaySettings, true)
+    }
 
     setStatusMessage('独立网关设置已更新。')
   }
@@ -509,7 +605,7 @@ function App() {
       return
     }
 
-    if (!currentProvider.baseUrl || !currentProvider.model) {
+    if (!isOpenClawTransport && (!currentProvider.baseUrl || !currentProvider.model)) {
       setStatusMessage('请先在右上角配置一个可用的模型源。')
       setProviderManagerOpen(true)
       return
@@ -566,6 +662,7 @@ function App() {
         history,
         prompt: userPrompt,
         attachments: userMessage.attachments,
+        sessionKey: currentConversation.gatewaySessionKey || currentAppState.gateway.sessionKey,
       })
 
       setAppState((current) => {
@@ -618,7 +715,9 @@ function App() {
                       role: 'assistant',
                       content:
                         `这次请求没有成功发出去：${message}\n\n` +
-                        '你可以检查右上角模型源里的 API URL、API Key 和模型名是否正确，然后再试一次。',
+                        (isOpenClawTransport
+                          ? '你可以先检查设置页里的 OpenClaw Gateway 地址、认证信息和 sessionKey，然后再试一次。'
+                          : '你可以检查右上角模型源里的 API URL、API Key 和模型名是否正确，然后再试一次。'),
                       createdAt: new Date().toISOString(),
                       attachments: [],
                     },
@@ -660,6 +759,9 @@ function App() {
         <span className="conversation-role">Main Agent</span>
         <strong>{conversation.title}</strong>
         <p>{conversation.summary || '等待新的任务'}</p>
+        {isOpenClawTransport && conversation.gatewaySessionKey ? (
+          <small>{conversation.gatewaySessionKey}</small>
+        ) : null}
       </button>
     )
   }
@@ -748,12 +850,18 @@ function App() {
                 <span className="eyebrow">当前会话</span>
                 <h2>{currentConversation.title}</h2>
                 <p>{currentConversation.summary || '把问题、文件和任务交给我。'}</p>
+                {isOpenClawTransport ? (
+                  <small>Gateway Session: {currentConversation.gatewaySessionKey || currentAppState.gateway.sessionKey}</small>
+                ) : null}
               </div>
-              <button className="provider-switcher" onClick={() => setProviderManagerOpen(true)}>
+              <button
+                className="provider-switcher"
+                onClick={() => (isOpenClawTransport ? setSection('settings') : setProviderManagerOpen(true))}
+              >
                 <span className="provider-switcher__status">READY</span>
                 <div>
-                  <strong>{currentProvider.label}</strong>
-                  <small>{currentProvider.model}</small>
+                  <strong>{isOpenClawTransport ? 'OpenClaw Gateway' : currentProvider.label}</strong>
+                  <small>{isOpenClawTransport ? currentAppState.gateway.endpoint : currentProvider.model}</small>
                 </div>
               </button>
             </header>
@@ -820,8 +928,11 @@ function App() {
 
               <div className="composer-meta">
                 <span>
-                  网关预留：{currentAppState.gateway.endpoint}:{currentAppState.gateway.port}
+                  传输模式：{isOpenClawTransport ? 'OpenClaw-Compatible' : 'OpenAI-Compatible'}
                 </span>
+                {isOpenClawTransport ? (
+                  <span>SessionKey：{currentConversation.gatewaySessionKey || currentAppState.gateway.sessionKey}</span>
+                ) : null}
                 <span>配置目录：{currentAppState.gateway.configDir}</span>
               </div>
             </footer>
@@ -837,7 +948,10 @@ function App() {
             <div>
               <span className="eyebrow">PoorClaw 风格</span>
               <h2>模型与 Token 源</h2>
-              <p>这里统一管理自定义 endpoint、模型名、API Key 和默认切换入口。</p>
+              <p>
+                这里统一管理自定义 endpoint、模型名、API Key 和默认切换入口。
+                {isOpenClawTransport ? ' 当前聊天已切到 OpenClaw Gateway 模式，模型配置由远端网关决定。' : ''}
+              </p>
             </div>
             <button className="primary-button" onClick={() => openProviderManager()}>
               <Plus size={16} />
@@ -874,7 +988,24 @@ function App() {
               刷新目录
             </button>
           </div>
-          <div className="grid-cards">{currentAppState.plugins.map(renderPluginCard)}</div>
+          <div className="grid-cards">
+            {currentAppState.plugins.map(renderPluginCard)}
+            {gatewaySnapshot?.tools.map((tool) => (
+              <article key={`gateway-tool-${tool.id}`} className="feature-card">
+                <div className="feature-card__header">
+                  <div>
+                    <span className="provider-badge">{tool.source === 'plugin' ? 'Gateway Plugin' : 'Gateway Tool'}</span>
+                    <h3>{tool.label}</h3>
+                  </div>
+                </div>
+                <p>{tool.description}</p>
+                <small>
+                  {tool.group}
+                  {tool.pluginId ? ` · ${tool.pluginId}` : ''}
+                </small>
+              </article>
+            ))}
+          </div>
         </section>
       )
     }
@@ -915,6 +1046,21 @@ function App() {
                 </div>
                 <p>{skill.description}</p>
                 {skill.path ? <small>{skill.path}</small> : null}
+              </article>
+            ))}
+            {gatewaySnapshot?.skills.map((skill) => (
+              <article key={`gateway-skill-${skill.id}`} className="feature-card">
+                <div className="feature-card__header">
+                  <div>
+                    <span className="provider-badge">Gateway Skill</span>
+                    <h3>{skill.name}</h3>
+                  </div>
+                </div>
+                <p>{skill.description}</p>
+                <small>
+                  {skill.source}
+                  {skill.eligible ? ' · eligible' : ' · unavailable'}
+                </small>
               </article>
             ))}
           </div>
@@ -1014,10 +1160,36 @@ function App() {
               <span className="provider-badge">Gateway</span>
               <h3>独立网关设置</h3>
             </div>
-            <button className="primary-button" onClick={saveGatewaySettings}>
-              <Save size={16} />
-              保存设置
-            </button>
+            <div className="provider-actions">
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  const settings = resolveGatewaySettingsFromDraft()
+                  if (settings) {
+                    void probeGateway(settings)
+                  }
+                }}
+              >
+                <Wrench size={16} className={isProbingGateway ? 'spin' : ''} />
+                探测网关
+              </button>
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  const settings = resolveGatewaySettingsFromDraft()
+                  if (settings) {
+                    void syncGatewayCatalog(settings)
+                  }
+                }}
+              >
+                <RefreshCw size={16} className={isSyncingGateway ? 'spin' : ''} />
+                同步能力
+              </button>
+              <button className="primary-button" onClick={saveGatewaySettings}>
+                <Save size={16} />
+                保存设置
+              </button>
+            </div>
           </div>
           <div className="settings-form-grid">
             <label>
@@ -1074,7 +1246,87 @@ function App() {
                 placeholder="/__aeroclaw__"
               />
             </label>
+            <label className="full-span">
+              <span>Gateway Token</span>
+              <input
+                value={settingsDraft.authToken}
+                onChange={(event) =>
+                  setSettingsDraft((current) => ({
+                    ...current,
+                    authToken: event.target.value,
+                  }))
+                }
+                placeholder="OpenClaw 共享 token，可为空"
+              />
+            </label>
+            <label className="full-span">
+              <span>Gateway Password</span>
+              <input
+                type="password"
+                value={settingsDraft.password}
+                onChange={(event) =>
+                  setSettingsDraft((current) => ({
+                    ...current,
+                    password: event.target.value,
+                  }))
+                }
+                placeholder="如你的网关使用密码模式，在这里填写"
+              />
+            </label>
+            <label className="full-span">
+              <span>默认 SessionKey</span>
+              <input
+                value={settingsDraft.sessionKey}
+                onChange={(event) =>
+                  setSettingsDraft((current) => ({
+                    ...current,
+                    sessionKey: event.target.value,
+                  }))
+                }
+                placeholder="main"
+              />
+            </label>
           </div>
+          {gatewayProbe ? (
+            <div className="settings-grid compact-grid">
+              <article className="setting-card compact">
+                <h3>探测结果</h3>
+                <p>{gatewayProbe.ok ? '已连通' : '未连通'}</p>
+              </article>
+              <article className="setting-card compact">
+                <h3>认证方式</h3>
+                <p>{gatewayProbe.authMode ?? 'none'}</p>
+              </article>
+              <article className="setting-card compact">
+                <h3>网关地址</h3>
+                <p>{gatewayProbe.gatewayUrl ?? '尚未返回'}</p>
+              </article>
+              <article className="setting-card compact">
+                <h3>检查时间</h3>
+                <p>{gatewayProbe.checkedAt}</p>
+              </article>
+            </div>
+          ) : null}
+          {gatewaySnapshot ? (
+            <div className="settings-grid compact-grid">
+              <article className="setting-card compact">
+                <h3>OpenClaw 会话</h3>
+                <p>{gatewaySnapshot.sessions.length}</p>
+              </article>
+              <article className="setting-card compact">
+                <h3>OpenClaw 技能</h3>
+                <p>{gatewaySnapshot.skills.length}</p>
+              </article>
+              <article className="setting-card compact">
+                <h3>OpenClaw 工具</h3>
+                <p>{gatewaySnapshot.tools.length}</p>
+              </article>
+              <article className="setting-card compact">
+                <h3>模型目录</h3>
+                <p>{gatewaySnapshot.models.length}</p>
+              </article>
+            </div>
+          ) : null}
         </div>
         <div className="settings-grid">
           <article className="setting-card">
@@ -1098,6 +1350,10 @@ function App() {
           <article className="setting-card">
             <h3>Canvas 路径</h3>
             <p>{currentAppState.gateway.canvasPath}</p>
+          </article>
+          <article className="setting-card">
+            <h3>默认 SessionKey</h3>
+            <p>{currentAppState.gateway.sessionKey}</p>
           </article>
           <article className="setting-card">
             <h3>独立目标</h3>
@@ -1134,7 +1390,7 @@ function App() {
     <div className="app-shell">
       <aside className="primary-sidebar fade-up">
         <div className="brand-lockup">
-          <div className="brand-mark">C</div>
+          <div className="brand-mark">A</div>
           <div>
             <strong>{currentAppState.brandName}</strong>
             <p>独立的 macOS Claw 客户端</p>

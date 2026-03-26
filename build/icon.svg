@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="132" y1="104" x2="884" y2="920" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#102033"/>
+      <stop offset="0.52" stop-color="#153652"/>
+      <stop offset="1" stop-color="#0C1828"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="202" y1="252" x2="804" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6EE7FF"/>
+      <stop offset="1" stop-color="#FFBF69"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="386" y1="262" x2="666" y2="722" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5FBFF"/>
+      <stop offset="1" stop-color="#A8E7FF"/>
+    </linearGradient>
+    <filter id="shadow" x="82" y="82" width="860" height="860" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="28"/>
+      <feGaussianBlur stdDeviation="44"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.0156863 0 0 0 0 0.0588235 0 0 0 0 0.117647 0 0 0 0.35 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_1" result="shape"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <rect x="170" y="142" width="684" height="684" rx="168" fill="url(#bg)"/>
+    <path d="M287 639C287 459.867 432.867 314 612 314C669.422 314 723.355 329.308 770 356.062" stroke="url(#ring)" stroke-width="52" stroke-linecap="round"/>
+    <path d="M742 423C760.812 456.333 771 494.833 771 536C771 661.112 669.112 763 544 763C455.71 763 379.208 712.478 342 638.719" stroke="url(#ring)" stroke-width="52" stroke-linecap="round"/>
+    <path d="M500.041 289L636.06 688H560.27L533.212 599.646H388.602L360.669 688H287L425.645 289H500.041ZM514.505 540.5L461.875 368.5L407.583 540.5H514.505Z" fill="url(#mark)"/>
+    <path d="M712 232L782 302" stroke="#FFBF69" stroke-width="40" stroke-linecap="round"/>
+    <path d="M666 206L751 291" stroke="#8EEBFF" stroke-width="28" stroke-linecap="round" opacity="0.95"/>
+    <path d="M628 188L721 281" stroke="#8EEBFF" stroke-width="18" stroke-linecap="round" opacity="0.85"/>
+  </g>
+</svg>

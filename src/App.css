@@ -277,6 +277,15 @@
   font-size: 0.92rem;
 }
 
+.conversation-card small,
+.chat-header small,
+.feature-card small {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
 .conversation-role,
 .eyebrow,
 .provider-badge,

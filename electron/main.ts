@@ -6,15 +6,22 @@ import { fileURLToPath } from 'node:url'
 import * as mammoth from 'mammoth'
 import { PDFParse } from 'pdf-parse'
 import * as XLSX from 'xlsx'
+import {
+  probeOpenClawGateway,
+  sendViaOpenClawGateway,
+  syncOpenClawGateway,
+} from './openclaw-client'
 import type {
   AppState,
   BootstrapPayload,
   ChatRequest,
   ChatResult,
+  GatewayProbeResult,
   GatewayServiceStatus,
   GatewaySettings,
   ImportedAttachment,
   ModelProvider,
+  OpenClawGatewaySnapshot,
   PluginItem,
   ProviderTestResult,
   SkillItem,
@@ -99,6 +106,9 @@ function getAppPaths(): AppPaths {
     endpoint: DEFAULT_GATEWAY_ENDPOINT,
     port: DEFAULT_GATEWAY_PORT,
     canvasPath: DEFAULT_CANVAS_PATH,
+    authToken: '',
+    password: '',
+    sessionKey: 'main',
     configDir,
     configFile,
     supportDir,
@@ -404,6 +414,7 @@ function createDefaultState(paths: AppPaths, skills: SkillItem[], plugins: Plugi
         summary: '独立目录、独立网关、安装后配 token 即可用',
         createdAt: now,
         updatedAt: now,
+        gatewaySessionKey: 'main',
         messages: [
           {
             id: crypto.randomUUID(),
@@ -424,6 +435,9 @@ function createDefaultState(paths: AppPaths, skills: SkillItem[], plugins: Plugi
       endpoint: DEFAULT_GATEWAY_ENDPOINT,
       port: DEFAULT_GATEWAY_PORT,
       canvasPath: DEFAULT_CANVAS_PATH,
+      authToken: '',
+      password: '',
+      sessionKey: 'main',
       configDir: paths.configDir,
       configFile: paths.configFile,
       supportDir: paths.supportDir,
@@ -559,6 +573,17 @@ function extractAssistantContent(payload: unknown) {
 }
 
 async function runChatCompletion(request: ChatRequest): Promise<ChatResult> {
+  const gatewaySettings = cachedState?.gateway
+
+  if (gatewaySettings?.transport === 'openclaw-compatible') {
+    return await sendViaOpenClawGateway({
+      settings: gatewaySettings,
+      prompt: request.prompt,
+      sessionKey: request.sessionKey || gatewaySettings.sessionKey || 'main',
+      attachments: request.attachments,
+    })
+  }
+
   if (!request.provider.baseUrl.trim()) {
     throw new Error('当前模型源缺少 API URL。')
   }
@@ -712,6 +737,39 @@ async function testProviderConnection(provider: ModelProvider): Promise<Provider
     const message = error instanceof Error ? error.message : 'chat/completions 探测失败'
     return { ok: false, checkedAt, message: `连接失败：${message}` }
   }
+}
+
+async function probeGatewayConnection(settings: GatewaySettings): Promise<GatewayProbeResult> {
+  if (settings.transport === 'openclaw-compatible') {
+    return await probeOpenClawGateway(settings)
+  }
+
+  const checkedAt = new Date().toISOString()
+  const host = parseGatewayHost(settings.endpoint)
+
+  return {
+    ok: true,
+    checkedAt,
+    gatewayUrl: `http://${host}:${settings.port}`,
+    authMode: 'none',
+    message: '当前是 AeroClaw 的独立本地网关模式。启动本地网关后即可访问兼容接口。',
+  }
+}
+
+async function syncGatewayCatalog(settings: GatewaySettings): Promise<OpenClawGatewaySnapshot> {
+  if (settings.transport !== 'openclaw-compatible') {
+    return {
+      checkedAt: new Date().toISOString(),
+      gatewayUrl: `http://${parseGatewayHost(settings.endpoint)}:${settings.port}`,
+      authMode: 'none',
+      models: [],
+      sessions: [],
+      skills: [],
+      tools: [],
+    }
+  }
+
+  return await syncOpenClawGateway(settings)
 }
 
 function parseGatewayHost(endpoint: string) {
@@ -954,6 +1012,14 @@ function registerIpcHandlers(paths: AppPaths) {
 
   ipcMain.handle('aeroclaw:test-provider', async (_event, provider: ModelProvider) =>
     testProviderConnection(provider),
+  )
+
+  ipcMain.handle('aeroclaw:probe-gateway', async (_event, settings: GatewaySettings) =>
+    probeGatewayConnection(settings),
+  )
+
+  ipcMain.handle('aeroclaw:sync-gateway', async (_event, settings: GatewaySettings) =>
+    syncGatewayCatalog(settings),
   )
 
   ipcMain.handle('aeroclaw:create-starter-assets', async (): Promise<StarterAssetsResult> =>

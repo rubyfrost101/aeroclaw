@@ -5,9 +5,12 @@ import type {
   ChatRequest,
   ChatResult,
   DesktopApi,
+  GatewayProbeResult,
   GatewayServiceStatus,
+  GatewaySettings,
   ImportedAttachment,
   ModelProvider,
+  OpenClawGatewaySnapshot,
   ProviderTestResult,
   StarterAssetsResult,
 } from '../src/shared/schema'
@@ -20,6 +23,10 @@ const api: DesktopApi = {
   sendChat: (request: ChatRequest) => ipcRenderer.invoke('aeroclaw:send-chat', request) as Promise<ChatResult>,
   testProvider: (provider: ModelProvider) =>
     ipcRenderer.invoke('aeroclaw:test-provider', provider) as Promise<ProviderTestResult>,
+  probeGateway: (settings: GatewaySettings) =>
+    ipcRenderer.invoke('aeroclaw:probe-gateway', settings) as Promise<GatewayProbeResult>,
+  syncGateway: (settings: GatewaySettings) =>
+    ipcRenderer.invoke('aeroclaw:sync-gateway', settings) as Promise<OpenClawGatewaySnapshot>,
   createStarterAssets: () =>
     ipcRenderer.invoke('aeroclaw:create-starter-assets') as Promise<StarterAssetsResult>,
   getGatewayStatus: () => ipcRenderer.invoke('aeroclaw:get-gateway-status') as Promise<GatewayServiceStatus>,
